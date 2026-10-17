@@ -1,6 +1,6 @@
 # 🏛️ SICAM - Sistema de Control de Activos Municipales
 
-[![GitHub](https://img.shields.io/badge/GitHub-JoshuaMc1-blue?logo=github)](https://github.com/JoshuaMc1/InventarioMunicipal)
+[![GitHub](https://img.shields.io/badge/GitHub-JoshuaMc1-blue?logo=github)](https://github.com/JoshuaMc1/SICAM)
 [![Java](https://img.shields.io/badge/Java-21+-orange?logo=java)](https://www.oracle.com/java/)
 [![JavaFX](https://img.shields.io/badge/JavaFX-25.0.1-brightgreen)](https://openjfx.io/)
 [![MySQL](https://img.shields.io/badge/MySQL-8.0+-blue?logo=mysql)](https://www.mysql.com/)
@@ -8,7 +8,7 @@
 
 Sistema completo de gestión de inventario desarrollado en JavaFX con MySQL para municipalidades. Incluye **transacciones multi-producto**, sistema de **roles y permisos granulares (RBAC)**, **códigos de barras/QR**, **backups automáticos**, **auditoría completa** y **generación de reportes PDF/CSV**.
 
-**🔗 Repositorio**: [https://github.com/JoshuaMc1/SICAM](https://github.com/JoshuaMc1/InventarioMunicipal)
+**🔗 Repositorio**: [https://github.com/JoshuaMc1/SICAM](https://github.com/JoshuaMc1/SICAM)
 
 ---
 
@@ -53,7 +53,7 @@ Sistema completo de gestión de inventario desarrollado en JavaFX con MySQL para
 - 🗜️ Compresión GZIP automática
 - 💽 Gestión completa de backups (crear, restaurar, eliminar)
 - ⚙️ Configuración habilitada/deshabilitada desde UI
-- 📁 Ubicación: `~/.inventario_municipal/backups/`
+- 📁 Ubicación: `~/.sicam/backups/`
 
 ---
 
@@ -69,8 +69,8 @@ Sistema completo de gestión de inventario desarrollado en JavaFX con MySQL para
 
 ```bash
 # 1. Clonar repositorio
-git clone https://github.com/JoshuaMc1/InventarioMunicipal.git
-cd InventarioMunicipal
+git clone https://github.com/JoshuaMc1/SICAM.git
+cd SICAM
 
 # 2. Compilar
 mvn clean compile

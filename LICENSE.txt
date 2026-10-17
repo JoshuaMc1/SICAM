@@ -41,7 +41,7 @@ REQUISITOS DEL SISTEMA:
 - MySQL 8.0 o superior (opcional, para base de datos remota)
 
 SOPORTE TÉCNICO:
-- Repositorio: https://github.com/JoshuaMc1/InventarioMunicipal
-- Issues: https://github.com/JoshuaMc1/InventarioMunicipal/issues
+- Repositorio: https://github.com/JoshuaMc1/SICAM
+- Issues: https://github.com/JoshuaMc1/SICAM/issues
 
 Para más información, consulte el archivo README.md incluido.

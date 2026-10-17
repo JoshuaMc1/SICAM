@@ -1,4 +1,4 @@
-# 🚀 Características del Sistema - Inventario Municipal
+# 🚀 Características del Sistema - SICAM - Sistema de Control de Activos Municipales
 
 **Fecha de última actualización:** 28 de Noviembre de 2025
 
@@ -167,7 +167,7 @@
 - ✅ Restauración de backups
 - ✅ Eliminación de backups antiguos
 - ✅ Limpieza automática configurable
-- ✅ Ubicación: `~/.inventario_municipal/backups/`
+- ✅ Ubicación: `~/.sicam/backups/`
 
 ---
 

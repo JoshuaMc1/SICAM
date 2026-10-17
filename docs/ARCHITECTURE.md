@@ -6,7 +6,7 @@
 SICAM/
 ├── src/
 │   ├── main/
-│   │   ├── java/com/joshuamc1/sycam/
+│   │   ├── java/com/joshuamc1/sicam/
 │   │   │   ├── config/              # ⚙️ Configuraciones del sistema
 │   │   │   ├── controllers/         # 🎮 Controladores JavaFX
 │   │   │   ├── core/                # 🔧 Utilidades centrales

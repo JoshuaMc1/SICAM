@@ -1,4 +1,4 @@
-# 🗄️ Base de Datos - Sistema de Inventario Municipal
+# 🗄️ Base de Datos - SICAM - Sistema de Control de Activos Municipales
 
 **Última actualización:** 28 de Noviembre de 2025
 

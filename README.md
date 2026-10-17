@@ -8,7 +8,7 @@
 
 Sistema completo de gestión de inventario desarrollado en JavaFX con MySQL para municipalidades. Incluye **transacciones multi-producto**, sistema de **roles y permisos granulares (RBAC)**, **códigos de barras/QR**, **backups automáticos**, **auditoría completa** y **generación de reportes PDF/CSV**.
 
-**🔗 Repositorio**: [https://github.com/JoshuaMc1/InventarioMunicipal](https://github.com/JoshuaMc1/InventarioMunicipal)
+**🔗 Repositorio**: [https://github.com/JoshuaMc1/SICAM](https://github.com/JoshuaMc1/InventarioMunicipal)
 
 ---
 
@@ -259,20 +259,20 @@ gzip --version
 
 #### 1. Clonar el Repositorio
 ```bash
-git clone https://github.com/JoshuaMc1/InventarioMunicipal.git
-cd InventarioMunicipal
+git clone https://github.com/JoshuaMc1/SICAM.git
+cd SICAM
 ```
 
 #### 2. Configurar MySQL
 ```sql
 -- Crear base de datos
-CREATE DATABASE inventario_municipal
+CREATE DATABASE sicam
 CHARACTER SET utf8mb4
 COLLATE utf8mb4_unicode_ci;
 
 -- Crear usuario (opcional, recomendado para producción)
-CREATE USER 'inventario_user'@'localhost' IDENTIFIED BY 'tu_contraseña_segura';
-GRANT ALL PRIVILEGES ON inventario_municipal.* TO 'inventario_user'@'localhost';
+CREATE USER 'sicam_user'@'localhost' IDENTIFIED BY 'tu_contraseña_segura';
+GRANT ALL PRIVILEGES ON sicam.* TO 'sicam_user'@'localhost';
 FLUSH PRIVILEGES;
 ```
 
@@ -293,11 +293,11 @@ mvn javafx:run
 mvn clean package
 ```
 
-El JAR se generará en: `target/InventarioMunicipal-1.0-SNAPSHOT.jar`
+El JAR se generará en: `target/SICAM-1.0-SNAPSHOT.jar`
 
 #### Ejecutar JAR
 ```bash
-java -jar target/InventarioMunicipal-1.0-SNAPSHOT.jar
+java -jar target/SICAM-1.0-SNAPSHOT.jar
 ```
 
 ---
@@ -310,7 +310,7 @@ Al iniciar por primera vez, el sistema mostrará un diálogo solicitando:
 
 1. **Host** del servidor MySQL (por defecto: `localhost`)
 2. **Puerto** (por defecto: `3306`)
-3. **Nombre de la base de datos** (por defecto: `inventario_municipal`)
+3. **Nombre de la base de datos** (por defecto: `sicam`)
 4. **Usuario** MySQL
 5. **Contraseña** MySQL
 
@@ -564,12 +564,12 @@ Para actualizar a una nueva versión:
 
 ### Soporte Técnico
 - **Email**: joshua15mclean@gmail.com
-- **GitHub Issues**: [Reportar problema](https://github.com/JoshuaMc1/InventarioMunicipal/issues)
+- **GitHub Issues**: [Reportar problema](https://github.com/JoshuaMc1/SICAM/issues)
 
 ### Enlaces Útiles
-- **Repositorio**: https://github.com/JoshuaMc1/InventarioMunicipal
-- **Releases**: https://github.com/JoshuaMc1/InventarioMunicipal/releases
-- **Wiki**: https://github.com/JoshuaMc1/InventarioMunicipal/wiki
+- **Repositorio**: https://github.com/JoshuaMc1/SICAM
+- **Releases**: https://github.com/JoshuaMc1/SICAM/releases
+- **Wiki**: https://github.com/JoshuaMc1/SICAM/wiki
 
 ---
 

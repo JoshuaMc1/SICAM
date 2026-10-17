@@ -1,4 +1,4 @@
-# 🔐 Seguridad - Sistema de Inventario Municipal
+# 🔐 Seguridad - SICAM - Sistema de Control de Activos Municipales
 
 **Última actualización:** 28 de Noviembre de 2025
 
@@ -251,8 +251,8 @@ IV: Aleatorio de 16 bytes por operación
 
 #### Ubicación del Archivo Cifrado
 ```
-Windows: %USERPROFILE%\.inventario_municipal\mysql.config
-Linux/Mac: ~/.inventario_municipal/mysql.config
+Windows: %USERPROFILE%\.sicam\mysql.config
+Linux/Mac: ~/.sicam/mysql.config
 ```
 
 #### Estructura del Archivo

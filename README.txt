@@ -47,17 +47,17 @@ PARA PRODUCCIÓN:
 
 PASO 1: Clonar el Repositorio
   
-  git clone https://github.com/JoshuaMc1/InventarioMunicipal
-  cd InventarioMunicipal
+  git clone https://github.com/JoshuaMc1/SICAM.git
+  cd SICAM
 
 PASO 2: Configurar MySQL
 
-  CREATE DATABASE inventario_municipal
+  CREATE DATABASE sicam
   CHARACTER SET utf8mb4
   COLLATE utf8mb4_unicode_ci;
 
-  CREATE USER 'inventario_user'@'localhost' IDENTIFIED BY 'tu_contraseña';
-  GRANT ALL PRIVILEGES ON inventario_municipal.* TO 'inventario_user'@'localhost';
+  CREATE USER 'sicam_user'@'localhost' IDENTIFIED BY 'tu_contraseña';
+  GRANT ALL PRIVILEGES ON sicam.* TO 'sicam_user'@'localhost';
   FLUSH PRIVILEGES;
 
 PASO 3: Compilar el Proyecto
@@ -76,11 +76,11 @@ GENERAR JAR:
   
   mvn clean package
 
-  El JAR se generará en: target/SYCAM-1.0-SNAPSHOT.jar
+  El JAR se generará en: target/SICAM-1.0-SNAPSHOT.jar
 
 EJECUTAR JAR:
 
-  java -jar target/SYCAM-1.0-SNAPSHOT.jar
+  java -jar target/SICAM-1.0-SNAPSHOT.jar
 
 --------------------------------------------------------------------------------
 3. CONFIGURACIÓN INICIAL (PRIMERA VEZ)
@@ -118,11 +118,11 @@ PASO 2: Crear Usuario ROOT
     ESTRUCTURA DEL PROYECTO
 ================================================================================
 
-SYCAM/
+SICAM/
 ├── src/
 │   ├── main/
 │   │   ├── java/
-│   │   │   └── com/joshuamc1/sycam/
+│   │   │   └── com/joshuamc1/sicam/
 │   │   │       ├── config/           # Configuraciones
 │   │   │       ├── controllers/      # Controladores JavaFX
 │   │   │       ├── core/             # Utilidades centrales
@@ -209,8 +209,8 @@ Para actualizar a una nueva versión:
 ================================================================================
 
 SOPORTE:
-  - GitHub: https://github.com/JoshuaMc1/InventarioMunicipal
-  - Issues: https://github.com/JoshuaMc1/InventarioMunicipal/issues
+  - GitHub: https://github.com/JoshuaMc1/SICAM
+  - Issues: https://github.com/JoshuaMc1/SICAM/issues
 
 LICENCIA:
   MIT License - Ver archivo LICENSE.txt para más detalles

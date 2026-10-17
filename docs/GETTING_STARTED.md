@@ -1,4 +1,4 @@
-# 🚀 Guía de Inicio Rápido - Inventario Municipal
+# 🚀 Guía de Inicio Rápido - SICAM - Sistema de Control de Activos Municipales
 
 **Última actualización:** 28 de Noviembre de 2025
 
@@ -60,19 +60,19 @@ gzip --version
 ### **1. Clonar el Repositorio**
 
 ```bash
-git clone https://github.com/tu-usuario/InventarioMunicipal.git
-cd InventarioMunicipal
+git clone https://github.com/JoshuaMc1/SICAM.git
+cd SICAM
 ```
 
 ### **2. Configurar MySQL**
 
 ```sql
 -- Crear base de datos
-CREATE DATABASE inventario_municipal CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE DATABASE sicam CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- Crear usuario (opcional)
-CREATE USER 'inventario_user'@'localhost' IDENTIFIED BY 'password_seguro';
-GRANT ALL PRIVILEGES ON inventario_municipal.* TO 'inventario_user'@'localhost';
+CREATE USER 'sicam_user'@'localhost' IDENTIFIED BY 'password_seguro';
+GRANT ALL PRIVILEGES ON sicam.* TO 'sicam_user'@'localhost';
 FLUSH PRIVILEGES;
 ```
 
@@ -100,7 +100,7 @@ Al iniciar por primera vez, se mostrará un asistente:
 1. **Configurar MySQL:**
    - Host: `localhost`
    - Puerto: `3306`
-   - Base de datos: `inventario_municipal`
+   - Base de datos: `sicam`
    - Usuario: `root` (o el creado)
    - Contraseña: tu contraseña de MySQL
 
@@ -349,7 +349,7 @@ El sistema crea backups automáticamente:
 - ✅ Al iniciar sesión (una vez por día)
 - ✅ Al cerrar la aplicación
 
-**Ubicación:** `C:\Users\{usuario}\.inventario_municipal\backups\`
+**Ubicación:** `C:\Users\{usuario}\.sicam\backups\`
 
 ### **Backup Manual**
 

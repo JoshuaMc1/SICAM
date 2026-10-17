@@ -1,6 +1,6 @@
-# 📚 Documentación del Sistema - Inventario Municipal
+# 📚 Documentación del Sistema - SICAM - Sistema de Control de Activos Municipales
 
-Bienvenido a la documentación oficial del **Sistema de Inventario Municipal**.
+Bienvenido a la documentación oficial del **Sistema de Control de Activos Municipales**.
 
 ## 📖 Documentos Disponibles
 

@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.control.*?>
+<?import javafx.scene.layout.*?>
+
+<ScrollPane xmlns="http://javafx.com/javafx"
+            xmlns:fx="http://javafx.com/fxml"
+            fx:controller="com.joshuamc1.sicam.controllers.dashboard.RolesController"
+            fitToWidth="true" fitToHeight="true">
+
+    <AnchorPane>
+        <VBox AnchorPane.topAnchor="0" AnchorPane.bottomAnchor="0"
+              AnchorPane.leftAnchor="0" AnchorPane.rightAnchor="0"
+              spacing="20" style="-fx-padding: 20;">
+
+            <!-- Header -->
+            <HBox alignment="CENTER_LEFT" spacing="20">
+                <Label text="Gestión de Roles y Permisos"
+                       style="-fx-font-size: 24px; -fx-font-weight: bold;"/>
+                <Region HBox.hgrow="ALWAYS"/>
+                <Button fx:id="btnViewDeleted" text="Ver Eliminados" onAction="#showDeletedRoles"
+                        style="-fx-background-color: #6c757d; -fx-text-fill: white; -fx-padding: 10 20;"/>
+                <Button fx:id="btnNuevoRol" text="+ Nuevo Rol"
+                        styleClass="btn-primary"
+                        style="-fx-background-color: #4CAF50; -fx-text-fill: white; -fx-padding: 10 20;"/>
+            </HBox>
+
+            <Separator/>
+
+            <!-- Tabla de Roles -->
+            <VBox VBox.vgrow="ALWAYS" spacing="10">
+                <Label text="Roles del Sistema"
+                       style="-fx-font-size: 16px; -fx-font-weight: bold;"/>
+
+                <TableView fx:id="tableRoles" VBox.vgrow="ALWAYS">
+                    <columns>
+                        <TableColumn fx:id="colId" text="ID" prefWidth="50"/>
+                        <TableColumn fx:id="colNombre" text="Nombre" prefWidth="200"/>
+                        <TableColumn fx:id="colDescripcion" text="Descripción" prefWidth="380"/>
+                        <TableColumn fx:id="colActivo" text="Activo" prefWidth="120"/>
+                        <TableColumn fx:id="colUsuarios" text="Usuarios" prefWidth="100"/>
+                        <TableColumn fx:id="colAcciones" text="Acciones" prefWidth="280"/>
+                    </columns>
+                </TableView>
+            </VBox>
+
+        </VBox>
+    </AnchorPane>
+
+</ScrollPane>
+

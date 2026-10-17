@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.control.Button?>
+<?import javafx.scene.control.ChoiceBox?>
+<?import javafx.scene.control.Label?>
+<?import javafx.scene.control.ScrollPane?>
+<?import javafx.scene.control.TableColumn?>
+<?import javafx.scene.control.TableView?>
+<?import javafx.scene.control.TextField?>
+<?import javafx.scene.layout.BorderPane?>
+<?import javafx.scene.layout.HBox?>
+<?import javafx.scene.layout.Region?>
+<?import javafx.scene.text.Font?>
+
+<ScrollPane xmlns="http://javafx.com/javafx/25" xmlns:fx="http://javafx.com/fxml/1" fx:controller="com.joshuamc1.sicam.controllers.dashboard.UsersController" fitToWidth="true" fitToHeight="true">
+    <BorderPane>
+        <top>
+            <HBox spacing="10">
+                <padding>
+                    <Insets bottom="10" left="10" right="10" top="10" />
+                </padding>
+                <Label style="-fx-font-size: 24px; -fx-font-weight: bold;" text="Usuarios" />
+                <Region HBox.hgrow="ALWAYS" />
+                <TextField fx:id="txtSearch" promptText="Buscar por nombre o usuario">
+                <font>
+                   <Font size="14.0" />
+                </font></TextField>
+                <Button fx:id="btnNew" onAction="#onNew" text="Nuevo">
+                <font>
+                   <Font name="System Bold" size="14.0" />
+                </font></Button>
+                <Button onAction="#onEdit" text="Editar">
+                <font>
+                   <Font name="System Bold" size="14.0" />
+                </font></Button>
+                <Button fx:id="btnToggleStatus" onAction="#toggleUserStatus" text="Activar/Desactivar" style="-fx-background-color: #17a2b8; -fx-text-fill: white;">
+                <font>
+                   <Font name="System Bold" size="14.0" />
+                </font></Button>
+                <Button onAction="#onResetPassword" text="Restablecer contraseña">
+                <font>
+                   <Font name="System Bold" size="14.0" />
+                </font></Button>
+                <Button onAction="#onDelete" text="Eliminar">
+                <font>
+                   <Font name="System Bold" size="14.0" />
+                </font></Button>
+            </HBox>
+        </top>
+
+        <center>
+            <TableView fx:id="tblUsers">
+                <columns>
+                    <TableColumn fx:id="colId" prefWidth="60" text="ID" />
+                    <TableColumn fx:id="colName" prefWidth="220" text="Nombre" />
+                    <TableColumn fx:id="colUsername" prefWidth="220" text="Usuario" />
+                    <TableColumn fx:id="colRole" prefWidth="200" text="Rol" />
+                    <TableColumn fx:id="colCreated" prefWidth="200" text="Creado" />
+                    <TableColumn fx:id="colStatus" prefWidth="100" text="Estado" />
+                    <TableColumn fx:id="colActions" prefWidth="120" text="Acciones" />
+                </columns>
+            </TableView>
+        </center>
+
+        <bottom>
+            <HBox spacing="10">
+                <padding>
+                    <Insets bottom="10" left="10" right="10" top="10" />
+                </padding>
+                <Label text="Paginación:">
+                    <font>
+                        <Font size="14.0" />
+                    </font></Label>
+                <Button fx:id="btnPrev" onAction="#onPrev" text="Anterior">
+                    <font>
+                        <Font name="System Bold" size="14.0" />
+                    </font></Button>
+                <Label fx:id="lblPage" text="Página 1/1">
+                    <font>
+                        <Font size="14.0" />
+                    </font></Label>
+                <Button fx:id="btnNext" onAction="#onNext" text="Siguiente">
+                    <font>
+                        <Font name="System Bold" size="14.0" />
+                    </font></Button>
+                <Label text="Tamaño:">
+                    <font>
+                        <Font size="14.0" />
+                    </font></Label>
+                <ChoiceBox fx:id="choicePageSize" />
+            </HBox>
+        </bottom>
+    </BorderPane>
+</ScrollPane>

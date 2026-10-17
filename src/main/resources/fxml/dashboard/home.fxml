@@ -1,0 +1,329 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.chart.BarChart?>
+<?import javafx.scene.chart.CategoryAxis?>
+<?import javafx.scene.chart.LineChart?>
+<?import javafx.scene.chart.NumberAxis?>
+<?import javafx.scene.chart.PieChart?>
+<?import javafx.scene.control.Button?>
+<?import javafx.scene.control.Label?>
+<?import javafx.scene.control.ScrollPane?>
+<?import javafx.scene.control.Separator?>
+<?import javafx.scene.control.TableColumn?>
+<?import javafx.scene.control.TableView?>
+<?import javafx.scene.layout.HBox?>
+<?import javafx.scene.layout.Region?>
+<?import javafx.scene.layout.VBox?>
+<?import javafx.scene.text.Font?>
+
+<ScrollPane fx:id="scrollContainer" fitToWidth="true" style="-fx-background: #f5f5f5;" xmlns="http://javafx.com/javafx/25" xmlns:fx="http://javafx.com/fxml/1" fx:controller="com.joshuamc1.sicam.controllers.dashboard.HomeController">
+
+    <VBox spacing="20" style="-fx-background-color: #f5f5f5;">
+        <padding>
+            <Insets bottom="20" left="20" right="20" top="20" />
+        </padding>
+
+        <!-- Encabezado con título y última actualización -->
+        <HBox alignment="CENTER_LEFT" spacing="20">
+            <Label text="Dashboard Principal" style="-fx-font-size: 28; -fx-font-weight: bold; -fx-text-fill: #2c3e50;">
+                <font>
+                    <Font name="System Bold" size="28.0" />
+                </font>
+            </Label>
+            <Region HBox.hgrow="ALWAYS" />
+            <VBox alignment="CENTER_RIGHT" spacing="5">
+                <Label fx:id="lblUltimaActualizacion" text="Última actualización: --" style="-fx-font-size: 12; -fx-text-fill: #7f8c8d;">
+                    <font>
+                        <Font size="12.0" />
+                    </font>
+                </Label>
+                <HBox spacing="10" alignment="CENTER_RIGHT">
+                    <Label fx:id="lblEstadoSistema" text="● Sistema OK" style="-fx-font-size: 12; -fx-text-fill: #27ae60;">
+                        <font>
+                            <Font size="12.0" />
+                        </font>
+                    </Label>
+                    <Button fx:id="btnRefresh" text="⟳ Actualizar" style="-fx-font-size: 12; -fx-background-color: #3498db; -fx-text-fill: white; -fx-cursor: hand;">
+                        <font>
+                            <Font name="System Bold" size="12.0" />
+                        </font>
+                    </Button>
+                </HBox>
+            </VBox>
+        </HBox>
+
+        <Separator />
+
+        <!-- Fila 1: KPIs Principales -->
+        <VBox spacing="10">
+            <Label text="Indicadores Clave" style="-fx-font-size: 18; -fx-font-weight: bold; -fx-text-fill: #34495e;">
+                <font>
+                    <Font name="System Bold" size="18.0" />
+                </font>
+            </Label>
+            <HBox spacing="15">
+                <VBox style="-fx-background-color: white; -fx-background-radius: 10; -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.1), 10, 0, 0, 2); -fx-padding: 20;" HBox.hgrow="ALWAYS" maxWidth="Infinity" alignment="CENTER" spacing="5">
+                    <Label text="Productos Totales" style="-fx-font-size: 14; -fx-text-fill: #7f8c8d;">
+                        <font>
+                            <Font size="14.0" />
+                        </font>
+                    </Label>
+                    <Label fx:id="lblTotalProductos" text="0" style="-fx-font-size: 32; -fx-font-weight: bold; -fx-text-fill: #3498db;">
+                        <font>
+                            <Font name="System Bold" size="32.0" />
+                        </font>
+                    </Label>
+                </VBox>
+
+                <VBox style="-fx-background-color: white; -fx-background-radius: 10; -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.1), 10, 0, 0, 2); -fx-padding: 20;" HBox.hgrow="ALWAYS" maxWidth="Infinity" alignment="CENTER" spacing="5">
+                    <Label text="Bajo Stock" style="-fx-font-size: 14; -fx-text-fill: #7f8c8d;">
+                        <font>
+                            <Font size="14.0" />
+                        </font>
+                    </Label>
+                    <Label fx:id="lblBajoStock" text="0" style="-fx-font-size: 32; -fx-font-weight: bold; -fx-text-fill: #f39c12;">
+                        <font>
+                            <Font name="System Bold" size="32.0" />
+                        </font>
+                    </Label>
+                </VBox>
+
+                <VBox style="-fx-background-color: white; -fx-background-radius: 10; -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.1), 10, 0, 0, 2); -fx-padding: 20;" HBox.hgrow="ALWAYS" maxWidth="Infinity" alignment="CENTER" spacing="5">
+                    <Label text="Sin Stock" style="-fx-font-size: 14; -fx-text-fill: #7f8c8d;">
+                        <font>
+                            <Font size="14.0" />
+                        </font>
+                    </Label>
+                    <Label fx:id="lblSinStock" text="0" style="-fx-font-size: 32; -fx-font-weight: bold; -fx-text-fill: #e74c3c;">
+                        <font>
+                            <Font name="System Bold" size="32.0" />
+                        </font>
+                    </Label>
+                </VBox>
+
+                <VBox style="-fx-background-color: white; -fx-background-radius: 10; -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.1), 10, 0, 0, 2); -fx-padding: 20;" HBox.hgrow="ALWAYS" maxWidth="Infinity" alignment="CENTER" spacing="5">
+                    <Label text="Préstamos Activos" style="-fx-font-size: 14; -fx-text-fill: #7f8c8d;">
+                        <font>
+                            <Font size="14.0" />
+                        </font>
+                    </Label>
+                    <Label fx:id="lblPrestamosActivos" text="0" style="-fx-font-size: 32; -fx-font-weight: bold; -fx-text-fill: #9b59b6;">
+                        <font>
+                            <Font name="System Bold" size="32.0" />
+                        </font>
+                    </Label>
+                </VBox>
+
+                <VBox style="-fx-background-color: white; -fx-background-radius: 10; -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.1), 10, 0, 0, 2); -fx-padding: 20;" HBox.hgrow="ALWAYS" maxWidth="Infinity" alignment="CENTER" spacing="5">
+                    <Label text="Transacciones del Mes" style="-fx-font-size: 14; -fx-text-fill: #7f8c8d;">
+                        <font>
+                            <Font size="14.0" />
+                        </font>
+                    </Label>
+                    <HBox alignment="CENTER" spacing="5">
+                        <Label fx:id="lblTransaccionesMes" text="0" style="-fx-font-size: 32; -fx-font-weight: bold; -fx-text-fill: #27ae60;">
+                            <font>
+                                <Font name="System Bold" size="32.0" />
+                            </font>
+                        </Label>
+                        <Label fx:id="lblTrendMes" text="" style="-fx-font-size: 18; -fx-font-weight: bold;">
+                            <font>
+                                <Font name="System Bold" size="18.0" />
+                            </font>
+                        </Label>
+                    </HBox>
+                </VBox>
+            </HBox>
+        </VBox>
+
+        <!-- Fila 2: Gráfico de Línea - Movimientos por Día -->
+        <VBox spacing="10" style="-fx-background-color: white; -fx-background-radius: 10; -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.1), 10, 0, 0, 2); -fx-padding: 20;">
+            <Label text="Tendencia de Movimientos (Últimos 30 días)" style="-fx-font-size: 16; -fx-font-weight: bold; -fx-text-fill: #34495e;">
+                <font>
+                    <Font name="System Bold" size="16.0" />
+                </font>
+            </Label>
+            <LineChart fx:id="lineMovimientos" prefHeight="300" legendVisible="true">
+                <xAxis>
+                    <CategoryAxis label="Fecha" />
+                </xAxis>
+                <yAxis>
+                    <NumberAxis label="Cantidad" />
+                </yAxis>
+            </LineChart>
+        </VBox>
+
+        <!-- Fila 3: Gráficos (Stock + Pie + Más Movidos) -->
+        <HBox spacing="20">
+            <VBox spacing="10" style="-fx-background-color: white; -fx-background-radius: 10; -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.1), 10, 0, 0, 2); -fx-padding: 20;" HBox.hgrow="ALWAYS">
+                <Label text="Stock de Productos (Top 10)" style="-fx-font-size: 16; -fx-font-weight: bold; -fx-text-fill: #34495e;">
+                    <font>
+                        <Font name="System Bold" size="16.0" />
+                    </font>
+                </Label>
+                <BarChart fx:id="barStock" prefHeight="300" legendVisible="false">
+                    <xAxis>
+                        <CategoryAxis />
+                    </xAxis>
+                    <yAxis>
+                        <NumberAxis label="Stock" />
+                    </yAxis>
+                </BarChart>
+            </VBox>
+
+            <VBox spacing="10" style="-fx-background-color: white; -fx-background-radius: 10; -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.1), 10, 0, 0, 2); -fx-padding: 20;" HBox.hgrow="ALWAYS">
+                <Label text="Distribución de Stock" style="-fx-font-size: 16; -fx-font-weight: bold; -fx-text-fill: #34495e;">
+                    <font>
+                        <Font name="System Bold" size="16.0" />
+                    </font>
+                </Label>
+                <PieChart fx:id="pieStock" prefHeight="300" legendVisible="true" />
+            </VBox>
+        </HBox>
+
+        <!-- Fila 4: Productos Más Movidos + Distribución por Tipo -->
+        <HBox spacing="20">
+            <VBox spacing="10" style="-fx-background-color: white; -fx-background-radius: 10; -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.1), 10, 0, 0, 2); -fx-padding: 20;" HBox.hgrow="ALWAYS">
+                <Label text="Productos Con Más Movimientos (Top 10)" style="-fx-font-size: 16; -fx-font-weight: bold; -fx-text-fill: #34495e;">
+                    <font>
+                        <Font name="System Bold" size="16.0" />
+                    </font>
+                </Label>
+                <BarChart fx:id="barMasMovidos" prefHeight="300" legendVisible="false">
+                    <xAxis>
+                        <CategoryAxis />
+                    </xAxis>
+                    <yAxis>
+                        <NumberAxis label="Movimientos" />
+                    </yAxis>
+                </BarChart>
+            </VBox>
+
+            <VBox spacing="10" style="-fx-background-color: white; -fx-background-radius: 10; -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.1), 10, 0, 0, 2); -fx-padding: 20;" HBox.hgrow="ALWAYS">
+                <Label text="Distribución por Tipo de Transacción" style="-fx-font-size: 16; -fx-font-weight: bold; -fx-text-fill: #34495e;">
+                    <font>
+                        <Font name="System Bold" size="16.0" />
+                    </font>
+                </Label>
+                <PieChart fx:id="pieTipoTransaccion" prefHeight="300" legendVisible="true" />
+            </VBox>
+        </HBox>
+
+        <!-- Fila 5: Mapa de Calor Semanal -->
+        <VBox spacing="10" style="-fx-background-color: white; -fx-background-radius: 10; -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.1), 10, 0, 0, 2); -fx-padding: 20;">
+            <Label text="Actividad por Día de la Semana" style="-fx-font-size: 16; -fx-font-weight: bold; -fx-text-fill: #34495e;">
+                <font>
+                    <Font name="System Bold" size="16.0" />
+                </font>
+            </Label>
+            <BarChart fx:id="barActividadSemanal" prefHeight="250" legendVisible="false">
+                <xAxis>
+                    <CategoryAxis label="Día de la Semana" />
+                </xAxis>
+                <yAxis>
+                    <NumberAxis label="Transacciones" />
+                </yAxis>
+            </BarChart>
+        </VBox>
+
+        <!-- Fila 6: Comparativa Temporal -->
+        <HBox spacing="20">
+            <VBox spacing="10" style="-fx-background-color: white; -fx-background-radius: 10; -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.1), 10, 0, 0, 2); -fx-padding: 20;" HBox.hgrow="ALWAYS">
+                <Label text="Comparación Mes Actual vs Anterior" style="-fx-font-size: 16; -fx-font-weight: bold; -fx-text-fill: #34495e;">
+                    <font>
+                        <Font name="System Bold" size="16.0" />
+                    </font>
+                </Label>
+                <VBox spacing="15" alignment="CENTER_LEFT">
+                    <HBox spacing="10" alignment="CENTER_LEFT">
+                        <Label text="Transacciones:" style="-fx-font-size: 14; -fx-text-fill: #7f8c8d;">
+                            <font>
+                                <Font size="14.0" />
+                            </font>
+                        </Label>
+                        <Label fx:id="lblCompTransacciones" text="-- vs --" style="-fx-font-size: 14; -fx-font-weight: bold;">
+                            <font>
+                                <Font name="System Bold" size="14.0" />
+                            </font>
+                        </Label>
+                        <Label fx:id="lblCompTransaccionesTrend" text="" style="-fx-font-size: 14; -fx-font-weight: bold;">
+                            <font>
+                                <Font name="System Bold" size="14.0" />
+                            </font>
+                        </Label>
+                    </HBox>
+                    <HBox spacing="10" alignment="CENTER_LEFT">
+                        <Label text="Nuevos Productos:" style="-fx-font-size: 14; -fx-text-fill: #7f8c8d;">
+                            <font>
+                                <Font size="14.0" />
+                            </font>
+                        </Label>
+                        <Label fx:id="lblCompProductos" text="-- vs --" style="-fx-font-size: 14; -fx-font-weight: bold;">
+                            <font>
+                                <Font name="System Bold" size="14.0" />
+                            </font>
+                        </Label>
+                        <Label fx:id="lblCompProductosTrend" text="" style="-fx-font-size: 14; -fx-font-weight: bold;">
+                            <font>
+                                <Font name="System Bold" size="14.0" />
+                            </font>
+                        </Label>
+                    </HBox>
+                    <HBox spacing="10" alignment="CENTER_LEFT">
+                        <Label text="Ingresos:" style="-fx-font-size: 14; -fx-text-fill: #7f8c8d;">
+                            <font>
+                                <Font size="14.0" />
+                            </font>
+                        </Label>
+                        <Label fx:id="lblCompIngresos" text="-- vs --" style="-fx-font-size: 14; -fx-font-weight: bold;">
+                            <font>
+                                <Font name="System Bold" size="14.0" />
+                            </font>
+                        </Label>
+                        <Label fx:id="lblCompIngresosTrend" text="" style="-fx-font-size: 14; -fx-font-weight: bold;">
+                            <font>
+                                <Font name="System Bold" size="14.0" />
+                            </font>
+                        </Label>
+                    </HBox>
+                </VBox>
+            </VBox>
+
+            <VBox spacing="10" style="-fx-background-color: white; -fx-background-radius: 10; -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.1), 10, 0, 0, 2); -fx-padding: 20;" HBox.hgrow="ALWAYS">
+                <Label text="Tendencia Trimestral" style="-fx-font-size: 16; -fx-font-weight: bold; -fx-text-fill: #34495e;">
+                    <font>
+                        <Font name="System Bold" size="16.0" />
+                    </font>
+                </Label>
+                <BarChart fx:id="barTendenciaTrimestral" prefHeight="200" legendVisible="true">
+                    <xAxis>
+                        <CategoryAxis label="Mes" />
+                    </xAxis>
+                    <yAxis>
+                        <NumberAxis label="Cantidad" />
+                    </yAxis>
+                </BarChart>
+            </VBox>
+        </HBox>
+
+        <!-- Últimas transacciones -->
+        <VBox spacing="10" style="-fx-background-color: white; -fx-background-radius: 10; -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.1), 10, 0, 0, 2); -fx-padding: 20;">
+            <Label text="Últimos Movimientos" style="-fx-font-size: 16; -fx-font-weight: bold; -fx-text-fill: #34495e;">
+                <font>
+                    <Font name="System Bold" size="16.0" />
+                </font>
+            </Label>
+
+            <TableView fx:id="tblTransacciones" prefHeight="300">
+                <columns>
+                    <TableColumn fx:id="colFecha" prefWidth="180" text="Fecha" />
+                    <TableColumn fx:id="colProducto" prefWidth="300" text="Producto" />
+                    <TableColumn fx:id="colTipo" prefWidth="150" text="Tipo" />
+                    <TableColumn fx:id="colCantidad" prefWidth="100" text="Cantidad" />
+                    <TableColumn fx:id="colUsuario" prefWidth="200" text="Usuario" />
+                </columns>
+            </TableView>
+        </VBox>
+    </VBox>
+</ScrollPane>

@@ -1,0 +1,3 @@
+# Este archivo mantiene la carpeta logs en el repositorio
+# Git ignora carpetas vacías, pero este archivo permite que se preserve
+# la estructura de directorios necesaria para la aplicación.

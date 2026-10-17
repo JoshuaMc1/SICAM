@@ -1,0 +1,47 @@
+MIT License
+
+Copyright (c) 2025 JoshuaMc1
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+
+INVENTARIO MUNICIPAL - SISTEMA DE GESTIÓN DE INVENTARIO
+
+Este software ha sido desarrollado para facilitar la gestión de inventarios
+en instituciones municipales. Incluye funcionalidades para:
+
+- Gestión de usuarios y permisos
+- Control de inventario de productos
+- Registro de entradas y salidas
+- Gestión de préstamos
+- Auditoría de transacciones
+- Generación de reportes
+
+REQUISITOS DEL SISTEMA:
+- Windows 10 versión 1809 o superior (x64)
+- Java 25 (incluido en la instalación)
+- JavaFX 25 (incluido en la instalación)
+- MySQL 8.0 o superior (opcional, para base de datos remota)
+
+SOPORTE TÉCNICO:
+- Repositorio: https://github.com/JoshuaMc1/InventarioMunicipal
+- Issues: https://github.com/JoshuaMc1/InventarioMunicipal/issues
+
+Para más información, consulte el archivo README.md incluido.

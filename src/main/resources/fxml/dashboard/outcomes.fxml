@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.control.Button?>
+<?import javafx.scene.control.Label?>
+<?import javafx.scene.control.ScrollPane?>
+<?import javafx.scene.control.TableColumn?>
+<?import javafx.scene.control.TableView?>
+<?import javafx.scene.layout.BorderPane?>
+<?import javafx.scene.layout.HBox?>
+<?import javafx.scene.layout.Region?>
+<?import javafx.scene.text.Font?>
+
+<?import javafx.scene.layout.VBox?>
+<?import javafx.scene.control.ChoiceBox?>
+<?import javafx.scene.control.TextField?>
+<ScrollPane xmlns="http://javafx.com/javafx/25" xmlns:fx="http://javafx.com/fxml/1" fx:controller="com.joshuamc1.sicam.controllers.dashboard.OutcomesController" fitToWidth="true" fitToHeight="true">
+    <BorderPane>
+        <top>
+            <HBox spacing="10">
+                <padding>
+                    <Insets bottom="10" left="10" right="10" top="10" />
+                </padding>
+                <Label style="-fx-font-size: 24px; -fx-font-weight: bold;" text="Egresos" />
+                <Region HBox.hgrow="ALWAYS" />
+                <TextField fx:id="txtSearch" promptText="Buscar...">
+                    <font>
+                        <Font size="14.0" />
+                    </font>
+                </TextField>
+                <Button fx:id="btnRefresh" onAction="#onRefresh" text="Refrescar">
+                <font>
+                   <Font name="System Bold" size="14.0" />
+                </font></Button>
+                <Button fx:id="btnNewOutcome" onAction="#onNew" text="Nuevo Egreso">
+                <font>
+                   <Font name="System Bold" size="14.0" />
+                </font>
+                </Button>
+                <Button fx:id="btnViewInvalidated" onAction="#showInvalidatedOutcomes" text="Ver Invalidados" style="-fx-background-color: #ffc107; -fx-text-fill: black;">
+                <font>
+                   <Font name="System Bold" size="14.0" />
+                </font></Button>
+            </HBox>
+        </top>
+
+        <center>
+            <TableView fx:id="tblTransactions">
+                <columns>
+                    <TableColumn fx:id="colId" prefWidth="60" text="ID" />
+                    <TableColumn fx:id="colProduct" prefWidth="200" text="Producto" />
+                    <TableColumn fx:id="colQuantity" prefWidth="100" text="Cantidad" />
+                    <TableColumn fx:id="colItems" prefWidth="80" text="Items" />
+                    <TableColumn fx:id="colDate" prefWidth="120" text="Fecha" />
+                    <TableColumn fx:id="colDni" prefWidth="120" text="DNI" />
+                    <TableColumn fx:id="colPerson" prefWidth="180" text="Persona" />
+                    <TableColumn fx:id="colNotes" prefWidth="200" text="Notas" />
+                    <TableColumn fx:id="colStatus" prefWidth="100" text="Estado" />
+                    <TableColumn fx:id="colActions" prefWidth="150" text="Acciones" />
+                </columns>
+            </TableView>
+        </center>
+
+        <bottom>
+            <VBox>
+                <HBox alignment="CENTER_RIGHT" spacing="10" style="-fx-padding: 8;">
+                    <Button fx:id="btnPrev" text="Anterior">
+                        <font>
+                            <Font name="System Bold" size="14.0" />
+                        </font></Button>
+                    <Label fx:id="lblPage" text="Página 1/1">
+                        <font>
+                            <Font size="14.0" />
+                        </font></Label>
+                    <Button fx:id="btnNext" text="Siguiente">
+                        <font>
+                            <Font name="System Bold" size="14.0" />
+                        </font></Button>
+                    <Label text="Tamaño:">
+                        <font>
+                            <Font size="14.0" />
+                        </font></Label>
+                    <ChoiceBox fx:id="choicePageSize" />
+                </HBox>
+            </VBox>
+        </bottom>
+    </BorderPane>
+</ScrollPane>

@@ -1,0 +1,382 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.control.*?>
+<?import javafx.scene.layout.*?>
+<?import javafx.scene.text.Font?>
+
+<ScrollPane xmlns="http://javafx.com/javafx/25" xmlns:fx="http://javafx.com/fxml/1"
+            fx:controller="com.joshuamc1.sicam.controllers.dashboard.ReportsController"
+            fitToWidth="true" fitToHeight="true">
+    <VBox spacing="20" style="-fx-padding: 20;">
+        <!-- Título principal -->
+        <Label text="Generador de Reportes" style="-fx-font-size: 28px; -fx-font-weight: bold;" />
+
+        <Separator />
+
+        <!-- Sección: Reportes de Usuarios -->
+        <VBox spacing="15">
+            <Label text="Reportes de Usuarios" style="-fx-font-size: 20px; -fx-font-weight: bold; -fx-text-fill: #2c3e50;" />
+
+            <!-- Reporte 1: Usuarios sin Root -->
+            <HBox spacing="15" alignment="CENTER_LEFT" style="-fx-padding: 10; -fx-background-color: #ecf0f1; -fx-background-radius: 5;">
+                <VBox spacing="5" HBox.hgrow="ALWAYS">
+                    <Label text="Usuarios del Sistema" style="-fx-font-size: 16px; -fx-font-weight: bold;">
+                        <font><Font name="System Bold" size="16.0" /></font>
+                    </Label>
+                    <Label text="Lista completa de todos los usuarios del sistema."
+                           style="-fx-text-fill: #7f8c8d; -fx-font-size: 13px;" wrapText="true" />
+                </VBox>
+                <Button fx:id="btnUsersNoRootCsv" text="Exportar CSV" style="-fx-min-width: 120;">
+                    <font><Font name="System Bold" size="13.0" /></font>
+                </Button>
+                <Button fx:id="btnUsersNoRootPdf" text="Exportar PDF" style="-fx-min-width: 120;">
+                    <font><Font name="System Bold" size="13.0" /></font>
+                </Button>
+            </HBox>
+
+            <!-- Reporte 2: Usuarios agrupados por Rol -->
+            <HBox spacing="15" alignment="CENTER_LEFT" style="-fx-padding: 10; -fx-background-color: #ecf0f1; -fx-background-radius: 5;">
+                <VBox spacing="5" HBox.hgrow="ALWAYS">
+                    <Label text="Usuarios Agrupados por Rol" style="-fx-font-size: 16px; -fx-font-weight: bold;">
+                        <font><Font name="System Bold" size="16.0" /></font>
+                    </Label>
+                    <Label text="Reporte de usuarios organizados y agrupados por su rol asignado en el sistema."
+                           style="-fx-text-fill: #7f8c8d; -fx-font-size: 13px;" wrapText="true" />
+                </VBox>
+                <Button fx:id="btnUsersGroupedCsv" text="Exportar CSV" style="-fx-min-width: 120;">
+                    <font><Font name="System Bold" size="13.0" /></font>
+                </Button>
+                <Button fx:id="btnUsersGroupedPdf" text="Exportar PDF" style="-fx-min-width: 120;">
+                    <font><Font name="System Bold" size="13.0" /></font>
+                </Button>
+            </HBox>
+        </VBox>
+
+        <Separator />
+
+        <!-- Sección: Reportes Analíticos y de Gestión -->
+        <VBox spacing="15">
+            <Label text="Reportes Analíticos y de Gestión" style="-fx-font-size: 20px; -fx-font-weight: bold; -fx-text-fill: #2c3e50;" />
+
+            <!-- Reporte 1: Productos Más Movidos -->
+            <HBox spacing="15" alignment="CENTER_LEFT" style="-fx-padding: 10; -fx-background-color: #d4edda; -fx-background-radius: 5;">
+                <VBox spacing="5" HBox.hgrow="ALWAYS">
+                    <Label text="Productos Más Movidos (Top 20)" style="-fx-font-size: 16px; -fx-font-weight: bold;">
+                        <font><Font name="System Bold" size="16.0" /></font>
+                    </Label>
+                    <Label text="Top 20 productos con más transacciones. Útil para planificar compras y detectar productos críticos."
+                           style="-fx-text-fill: #155724; -fx-font-size: 13px;" wrapText="true" />
+                </VBox>
+                <Button fx:id="btnProductsMostMovedCsv" text="Exportar CSV" style="-fx-min-width: 120;">
+                    <font><Font name="System Bold" size="13.0" /></font>
+                </Button>
+                <Button fx:id="btnProductsMostMovedPdf" text="Exportar PDF" style="-fx-min-width: 120;">
+                    <font><Font name="System Bold" size="13.0" /></font>
+                </Button>
+            </HBox>
+
+            <!-- Reporte 2: Personas con Préstamos Activos -->
+            <HBox spacing="15" alignment="CENTER_LEFT" style="-fx-padding: 10; -fx-background-color: #d4edda; -fx-background-radius: 5;">
+                <VBox spacing="5" HBox.hgrow="ALWAYS">
+                    <Label text="Personas con Préstamos Activos" style="-fx-font-size: 16px; -fx-font-weight: bold;">
+                        <font><Font name="System Bold" size="16.0" /></font>
+                    </Label>
+                    <Label text="Control de préstamos activos con días transcurridos. Seguimiento de responsabilidades."
+                           style="-fx-text-fill: #155724; -fx-font-size: 13px;" wrapText="true" />
+                </VBox>
+                <Button fx:id="btnPeopleWithLoansCsv" text="Exportar CSV" style="-fx-min-width: 120;">
+                    <font><Font name="System Bold" size="13.0" /></font>
+                </Button>
+                <Button fx:id="btnPeopleWithLoansPdf" text="Exportar PDF" style="-fx-min-width: 120;">
+                    <font><Font name="System Bold" size="13.0" /></font>
+                </Button>
+            </HBox>
+
+            <!-- Reporte 3: Consumo Mensual -->
+            <HBox spacing="15" alignment="CENTER_LEFT" style="-fx-padding: 10; -fx-background-color: #d4edda; -fx-background-radius: 5;">
+                <VBox spacing="5" HBox.hgrow="ALWAYS">
+                    <Label text="Consumo Mensual de Productos" style="-fx-font-size: 16px; -fx-font-weight: bold;">
+                        <font><Font name="System Bold" size="16.0" /></font>
+                    </Label>
+                    <Label text="Análisis de consumo de productos por mes. Detecta patrones y ayuda en la planificación."
+                           style="-fx-text-fill: #155724; -fx-font-size: 13px;" wrapText="true" />
+                </VBox>
+                <Button fx:id="btnMonthlyConsumptionCsv" text="Exportar CSV" style="-fx-min-width: 120;">
+                    <font><Font name="System Bold" size="13.0" /></font>
+                </Button>
+                <Button fx:id="btnMonthlyConsumptionPdf" text="Exportar PDF" style="-fx-min-width: 120;">
+                    <font><Font name="System Bold" size="13.0" /></font>
+                </Button>
+            </HBox>
+
+            <!-- Reporte 4: Productos Sin Movimiento -->
+            <HBox spacing="15" alignment="CENTER_LEFT" style="-fx-padding: 10; -fx-background-color: #f8d7da; -fx-background-radius: 5;">
+                <VBox spacing="5" HBox.hgrow="ALWAYS">
+                    <Label text="Productos Sin Movimiento" style="-fx-font-size: 16px; -fx-font-weight: bold;">
+                        <font><Font name="System Bold" size="16.0" /></font>
+                    </Label>
+                    <Label text="Productos sin transacciones en los últimos 90 días. Detecta productos obsoletos o de baja rotación."
+                           style="-fx-text-fill: #721c24; -fx-font-size: 13px;" wrapText="true" />
+                </VBox>
+                <Button fx:id="btnProductsNoMovementCsv" text="Exportar CSV" style="-fx-min-width: 120;">
+                    <font><Font name="System Bold" size="13.0" /></font>
+                </Button>
+                <Button fx:id="btnProductsNoMovementPdf" text="Exportar PDF" style="-fx-min-width: 120;">
+                    <font><Font name="System Bold" size="13.0" /></font>
+                </Button>
+            </HBox>
+
+            <!-- Reporte 5: Actividad por Usuario -->
+            <HBox spacing="15" alignment="CENTER_LEFT" style="-fx-padding: 10; -fx-background-color: #d4edda; -fx-background-radius: 5;">
+                <VBox spacing="5" HBox.hgrow="ALWAYS">
+                    <Label text="Actividad Detallada por Usuario" style="-fx-font-size: 16px; -fx-font-weight: bold;">
+                        <font><Font name="System Bold" size="16.0" /></font>
+                    </Label>
+                    <Label text="Auditoría detallada de actividad diaria de un usuario específico con desglose por tipo."
+                           style="-fx-text-fill: #155724; -fx-font-size: 13px;" wrapText="true" />
+                </VBox>
+                <Button fx:id="btnUserActivityCsv" text="Exportar CSV" style="-fx-min-width: 120;">
+                    <font><Font name="System Bold" size="13.0" /></font>
+                </Button>
+                <Button fx:id="btnUserActivityPdf" text="Exportar PDF" style="-fx-min-width: 120;">
+                    <font><Font name="System Bold" size="13.0" /></font>
+                </Button>
+            </HBox>
+
+            <!-- Reporte 6: Dashboard Mensual -->
+            <HBox spacing="15" alignment="CENTER_LEFT" style="-fx-padding: 10; -fx-background-color: #cce5ff; -fx-background-radius: 5;">
+                <VBox spacing="5" HBox.hgrow="ALWAYS">
+                    <Label text="Dashboard Mensual con KPIs" style="-fx-font-size: 16px; -fx-font-weight: bold;">
+                        <font><Font name="System Bold" size="16.0" /></font>
+                    </Label>
+                    <Label text="Resumen ejecutivo mensual con KPIs principales: inventario, transacciones y actividad del sistema."
+                           style="-fx-text-fill: #004085; -fx-font-size: 13px;" wrapText="true" />
+                </VBox>
+                <Button fx:id="btnMonthlyDashboardCsv" text="Exportar CSV" style="-fx-min-width: 120;">
+                    <font><Font name="System Bold" size="13.0" /></font>
+                </Button>
+                <Button fx:id="btnMonthlyDashboardPdf" text="Exportar PDF" style="-fx-min-width: 120;">
+                    <font><Font name="System Bold" size="13.0" /></font>
+                </Button>
+            </HBox>
+        </VBox>
+
+        <Separator />
+
+        <!-- Sección: Reportes de Inventario -->
+        <VBox spacing="15">
+            <Label text="Reportes de Inventario" style="-fx-font-size: 20px; -fx-font-weight: bold; -fx-text-fill: #2c3e50;" />
+
+            <!-- Reporte 1: Inventario Completo -->
+            <HBox spacing="15" alignment="CENTER_LEFT" style="-fx-padding: 10; -fx-background-color: #ecf0f1; -fx-background-radius: 5;">
+                <VBox spacing="5" HBox.hgrow="ALWAYS">
+                    <Label text="Inventario Completo" style="-fx-font-size: 16px; -fx-font-weight: bold;">
+                        <font><Font name="System Bold" size="16.0" /></font>
+                    </Label>
+                    <Label text="Listado completo de todos los productos registrados en el sistema con su stock actual y mínimo."
+                           style="-fx-text-fill: #7f8c8d; -fx-font-size: 13px;" wrapText="true" />
+                </VBox>
+                <Button fx:id="btnInventoryCompleteCsv" text="Exportar CSV" style="-fx-min-width: 120;">
+                    <font><Font name="System Bold" size="13.0" /></font>
+                </Button>
+                <Button fx:id="btnInventoryCompletePdf" text="Exportar PDF" style="-fx-min-width: 120;">
+                    <font><Font name="System Bold" size="13.0" /></font>
+                </Button>
+            </HBox>
+
+            <!-- Reporte 2: Productos con Stock Bajo -->
+            <HBox spacing="15" alignment="CENTER_LEFT" style="-fx-padding: 10; -fx-background-color: #ecf0f1; -fx-background-radius: 5;">
+                <VBox spacing="5" HBox.hgrow="ALWAYS">
+                    <Label text="Productos con Stock Bajo" style="-fx-font-size: 16px; -fx-font-weight: bold;">
+                        <font><Font name="System Bold" size="16.0" /></font>
+                    </Label>
+                    <Label text="Productos cuyo stock actual es igual o menor al stock mínimo establecido. Ideal para planificar compras."
+                           style="-fx-text-fill: #7f8c8d; -fx-font-size: 13px;" wrapText="true" />
+                </VBox>
+                <Button fx:id="btnInventoryLowStockCsv" text="Exportar CSV" style="-fx-min-width: 120;">
+                    <font><Font name="System Bold" size="13.0" /></font>
+                </Button>
+                <Button fx:id="btnInventoryLowStockPdf" text="Exportar PDF" style="-fx-min-width: 120;">
+                    <font><Font name="System Bold" size="13.0" /></font>
+                </Button>
+            </HBox>
+
+            <!-- Reporte 3: Productos Sin Stock -->
+            <HBox spacing="15" alignment="CENTER_LEFT" style="-fx-padding: 10; -fx-background-color: #ecf0f1; -fx-background-radius: 5;">
+                <VBox spacing="5" HBox.hgrow="ALWAYS">
+                    <Label text="Productos Sin Stock" style="-fx-font-size: 16px; -fx-font-weight: bold;">
+                        <font><Font name="System Bold" size="16.0" /></font>
+                    </Label>
+                    <Label text="Productos que actualmente tienen stock en cero. Requieren reabastecimiento urgente."
+                           style="-fx-text-fill: #7f8c8d; -fx-font-size: 13px;" wrapText="true" />
+                </VBox>
+                <Button fx:id="btnInventoryOutOfStockCsv" text="Exportar CSV" style="-fx-min-width: 120;">
+                    <font><Font name="System Bold" size="13.0" /></font>
+                </Button>
+                <Button fx:id="btnInventoryOutOfStockPdf" text="Exportar PDF" style="-fx-min-width: 120;">
+                    <font><Font name="System Bold" size="13.0" /></font>
+                </Button>
+            </HBox>
+
+            <!-- Reporte 4: Movimientos de Inventario -->
+            <HBox spacing="15" alignment="CENTER_LEFT" style="-fx-padding: 10; -fx-background-color: #ecf0f1; -fx-background-radius: 5;">
+                <VBox spacing="5" HBox.hgrow="ALWAYS">
+                    <Label text="Movimientos de Inventario (Últimos 30 días)" style="-fx-font-size: 16px; -fx-font-weight: bold;">
+                        <font><Font name="System Bold" size="16.0" /></font>
+                    </Label>
+                    <Label text="Historial de todas las transacciones: ingresos, egresos y préstamos realizados en el último mes."
+                           style="-fx-text-fill: #7f8c8d; -fx-font-size: 13px;" wrapText="true" />
+                </VBox>
+                <Button fx:id="btnInventoryMovementsCsv" text="Exportar CSV" style="-fx-min-width: 120;">
+                    <font><Font name="System Bold" size="13.0" /></font>
+                </Button>
+                <Button fx:id="btnInventoryMovementsPdf" text="Exportar PDF" style="-fx-min-width: 120;">
+                    <font><Font name="System Bold" size="13.0" /></font>
+                </Button>
+            </HBox>
+
+            <!-- Reporte 5: Movimientos por Rango de Fechas -->
+            <HBox spacing="15" alignment="CENTER_LEFT" style="-fx-padding: 10; -fx-background-color: #fff3cd; -fx-background-radius: 5;">
+                <VBox spacing="5" HBox.hgrow="ALWAYS">
+                    <Label text="Movimientos por Rango de Fechas Personalizado" style="-fx-font-size: 16px; -fx-font-weight: bold;">
+                        <font><Font name="System Bold" size="16.0" /></font>
+                    </Label>
+                    <Label text="Historial de transacciones en un periodo específico que usted seleccione."
+                           style="-fx-text-fill: #856404; -fx-font-size: 13px;" wrapText="true" />
+                </VBox>
+                <Button fx:id="btnMovementsByDateCsv" text="Exportar CSV" style="-fx-min-width: 120;">
+                    <font><Font name="System Bold" size="13.0" /></font>
+                </Button>
+                <Button fx:id="btnMovementsByDatePdf" text="Exportar PDF" style="-fx-min-width: 120;">
+                    <font><Font name="System Bold" size="13.0" /></font>
+                </Button>
+            </HBox>
+
+            <!-- Reporte 6: Productos Registrados por Rango de Fechas -->
+            <HBox spacing="15" alignment="CENTER_LEFT" style="-fx-padding: 10; -fx-background-color: #fff3cd; -fx-background-radius: 5;">
+                <VBox spacing="5" HBox.hgrow="ALWAYS">
+                    <Label text="Productos Registrados por Rango de Fechas" style="-fx-font-size: 16px; -fx-font-weight: bold;">
+                        <font><Font name="System Bold" size="16.0" /></font>
+                    </Label>
+                    <Label text="Productos que fueron registrados en el sistema dentro de un periodo específico."
+                           style="-fx-text-fill: #856404; -fx-font-size: 13px;" wrapText="true" />
+                </VBox>
+                <Button fx:id="btnProductsByDateCsv" text="Exportar CSV" style="-fx-min-width: 120;">
+                    <font><Font name="System Bold" size="13.0" /></font>
+                </Button>
+                <Button fx:id="btnProductsByDatePdf" text="Exportar PDF" style="-fx-min-width: 120;">
+                    <font><Font name="System Bold" size="13.0" /></font>
+                </Button>
+            </HBox>
+        </VBox>
+
+        <Separator />
+
+        <!-- Sección: Reportes de Transacciones -->
+        <VBox spacing="15">
+            <Label text="Reportes de Transacciones" style="-fx-font-size: 20px; -fx-font-weight: bold; -fx-text-fill: #2c3e50;" />
+
+            <!-- Reporte 1: Historial Completo -->
+            <HBox spacing="15" alignment="CENTER_LEFT" style="-fx-padding: 10; -fx-background-color: #d1ecf1; -fx-background-radius: 5;">
+                <VBox spacing="5" HBox.hgrow="ALWAYS">
+                    <Label text="Historial Completo de Transacciones" style="-fx-font-size: 16px; -fx-font-weight: bold;">
+                        <font><Font name="System Bold" size="16.0" /></font>
+                    </Label>
+                    <Label text="Todas las transacciones registradas en el sistema: ingresos, egresos y préstamos."
+                           style="-fx-text-fill: #0c5460; -fx-font-size: 13px;" wrapText="true" />
+                </VBox>
+                <Button fx:id="btnTransactionsAllCsv" text="Exportar CSV" style="-fx-min-width: 120;">
+                    <font><Font name="System Bold" size="13.0" /></font>
+                </Button>
+                <Button fx:id="btnTransactionsAllPdf" text="Exportar PDF" style="-fx-min-width: 120;">
+                    <font><Font name="System Bold" size="13.0" /></font>
+                </Button>
+            </HBox>
+
+            <!-- Reporte 2: Por Tipo de Transacción -->
+            <HBox spacing="15" alignment="CENTER_LEFT" style="-fx-padding: 10; -fx-background-color: #d1ecf1; -fx-background-radius: 5;">
+                <VBox spacing="5" HBox.hgrow="ALWAYS">
+                    <Label text="Transacciones por Tipo" style="-fx-font-size: 16px; -fx-font-weight: bold;">
+                        <font><Font name="System Bold" size="16.0" /></font>
+                    </Label>
+                    <Label text="Filtre transacciones por tipo específico: Ingresos, Egresos o Préstamos."
+                           style="-fx-text-fill: #0c5460; -fx-font-size: 13px;" wrapText="true" />
+                </VBox>
+                <Button fx:id="btnTransactionsByTypeCsv" text="Exportar CSV" style="-fx-min-width: 120;">
+                    <font><Font name="System Bold" size="13.0" /></font>
+                </Button>
+                <Button fx:id="btnTransactionsByTypePdf" text="Exportar PDF" style="-fx-min-width: 120;">
+                    <font><Font name="System Bold" size="13.0" /></font>
+                </Button>
+            </HBox>
+
+            <!-- Reporte 3: Por Tipo y Rango de Fechas -->
+            <HBox spacing="15" alignment="CENTER_LEFT" style="-fx-padding: 10; -fx-background-color: #cfe2ff; -fx-background-radius: 5;">
+                <VBox spacing="5" HBox.hgrow="ALWAYS">
+                    <Label text="Transacciones por Tipo y Fecha" style="-fx-font-size: 16px; -fx-font-weight: bold;">
+                        <font><Font name="System Bold" size="16.0" /></font>
+                    </Label>
+                    <Label text="Transacciones de un tipo específico en un rango de fechas personalizado."
+                           style="-fx-text-fill: #084298; -fx-font-size: 13px;" wrapText="true" />
+                </VBox>
+                <Button fx:id="btnTransactionsByTypeAndDateCsv" text="Exportar CSV" style="-fx-min-width: 120;">
+                    <font><Font name="System Bold" size="13.0" /></font>
+                </Button>
+                <Button fx:id="btnTransactionsByTypeAndDatePdf" text="Exportar PDF" style="-fx-min-width: 120;">
+                    <font><Font name="System Bold" size="13.0" /></font>
+                </Button>
+            </HBox>
+
+            <!-- Reporte 4: Por Usuario -->
+            <HBox spacing="15" alignment="CENTER_LEFT" style="-fx-padding: 10; -fx-background-color: #d1ecf1; -fx-background-radius: 5;">
+                <VBox spacing="5" HBox.hgrow="ALWAYS">
+                    <Label text="Transacciones por Usuario" style="-fx-font-size: 16px; -fx-font-weight: bold;">
+                        <font><Font name="System Bold" size="16.0" /></font>
+                    </Label>
+                    <Label text="Historial de transacciones realizadas por un usuario específico del sistema."
+                           style="-fx-text-fill: #0c5460; -fx-font-size: 13px;" wrapText="true" />
+                </VBox>
+                <Button fx:id="btnTransactionsByUserCsv" text="Exportar CSV" style="-fx-min-width: 120;">
+                    <font><Font name="System Bold" size="13.0" /></font>
+                </Button>
+                <Button fx:id="btnTransactionsByUserPdf" text="Exportar PDF" style="-fx-min-width: 120;">
+                    <font><Font name="System Bold" size="13.0" /></font>
+                </Button>
+            </HBox>
+
+            <!-- Reporte 5: Por Persona -->
+            <HBox spacing="15" alignment="CENTER_LEFT" style="-fx-padding: 10; -fx-background-color: #d1ecf1; -fx-background-radius: 5;">
+                <VBox spacing="5" HBox.hgrow="ALWAYS">
+                    <Label text="Transacciones por Persona" style="-fx-font-size: 16px; -fx-font-weight: bold;">
+                        <font><Font name="System Bold" size="16.0" /></font>
+                    </Label>
+                    <Label text="Transacciones asociadas a una persona específica (préstamos, entregas, etc.)."
+                           style="-fx-text-fill: #0c5460; -fx-font-size: 13px;" wrapText="true" />
+                </VBox>
+                <Button fx:id="btnTransactionsByPersonCsv" text="Exportar CSV" style="-fx-min-width: 120;">
+                    <font><Font name="System Bold" size="13.0" /></font>
+                </Button>
+                <Button fx:id="btnTransactionsByPersonPdf" text="Exportar PDF" style="-fx-min-width: 120;">
+                    <font><Font name="System Bold" size="13.0" /></font>
+                </Button>
+            </HBox>
+        </VBox>
+
+        <Separator />
+
+        <!-- Información adicional -->
+        <VBox spacing="5" style="-fx-padding: 10; -fx-background-color: #e8f4f8; -fx-background-radius: 5;">
+            <Label text="ℹ Información" style="-fx-font-size: 14px; -fx-font-weight: bold; -fx-text-fill: #3498db;">
+                <font><Font name="System Bold" size="14.0" /></font>
+            </Label>
+            <Label text="• Los reportes se generan instantáneamente al hacer clic en el botón correspondiente."
+                   style="-fx-text-fill: #34495e; -fx-font-size: 12px;" wrapText="true" />
+            <Label text="• Los archivos PDF incluyen encabezado con logo, fecha y usuario que generó el reporte."
+                   style="-fx-text-fill: #34495e; -fx-font-size: 12px;" wrapText="true" />
+            <Label text="• Los archivos CSV pueden abrirse en Excel u otros programas de hojas de cálculo."
+                   style="-fx-text-fill: #34495e; -fx-font-size: 12px;" wrapText="true" />
+        </VBox>
+    </VBox>
+</ScrollPane>
+

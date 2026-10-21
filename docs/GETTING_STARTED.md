@@ -48,11 +48,11 @@ El empaquetado utiliza Maven Shade y declara `com.joshuamc1.sicam.App` como clas
 | --- | --- |
 | Configuración de MySQL | `~/.sicam/mysql.config` |
 | Respaldos | `~/.sicam/backups/` |
-| Control de respaldos automáticos | `~/.inventario_municipal/.cache/backup_control.properties` |
+| Control de respaldos automáticos | `~/.sicam/.cache/backup_control.properties` |
 | Logs | `logs/app.log`, relativo al directorio de ejecución |
 | Evidencias de QA locales | `qa-evidence/`, `evidence/` y `docs/qa/` |
 
-En Windows, `~` es normalmente `%USERPROFILE%`. AppConfig permite cambiar la carpeta de configuración con `app.secure.dir` o `APP_SECURE_DIR`. El código actual de respaldos calcula su carpeta desde el nombre final de esa ruta bajo el perfil del usuario; no presuponga que conserva todo el directorio personalizado. El control automático todavía usa la ruta histórica `.inventario_municipal`.
+En Windows, `~` es normalmente `%USERPROFILE%`. AppConfig permite cambiar la carpeta de configuración con `app.secure.dir` o `APP_SECURE_DIR`. El código actual de respaldos calcula su carpeta desde el nombre final de esa ruta bajo el perfil del usuario; no presuponga que conserva todo el directorio personalizado. El control automático utiliza la carpeta completa de AppConfig y guarda `.cache/backup_control.properties` dentro de ella. Si el archivo nuevo no existe y se encuentra el de `~/.inventario_municipal/.cache/`, copia sus opciones y fechas a la nueva ubicación, sin borrar el original. Si ya existe configuración nueva, esta tiene prioridad.
 
 El archivo de conexión es un archivo Properties con valores cifrados, no un JSON. No lo publique ni lo incluya en evidencias.
 

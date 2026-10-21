@@ -1,6 +1,7 @@
 package com.joshuamc1.sicam.core;
 
 import com.joshuamc1.sicam.services.BackupService;
+import com.joshuamc1.sicam.config.AppConfig;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -18,10 +19,8 @@ import java.util.Properties;
  */
 public class AutoBackupManager {
     private static AutoBackupManager instance;
-    private static final String USER_HOME = System.getProperty("user.home");
-    private static final String APP_DIR = USER_HOME + "/.inventario_municipal";
-    private static final String CACHE_DIR = APP_DIR + "/.cache";
-    private static final String CACHE_FILE = CACHE_DIR + "/backup_control.properties";
+    private final Path cacheFile;
+    private final Path legacyCacheFile;
     private static final DateTimeFormatter DATE_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd");
     private static final DateTimeFormatter DATETIME_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
@@ -30,6 +29,13 @@ public class AutoBackupManager {
     private boolean autoBackupEnabled = false;
 
     private AutoBackupManager() {
+        this(AppConfig.getSecureFolderPath(), Paths.get(System.getProperty("user.home"),
+            ".inventario_municipal", ".cache", "backup_control.properties"));
+    }
+
+    AutoBackupManager(Path secureFolder, Path legacyCacheFile) {
+        this.cacheFile = secureFolder.resolve(".cache").resolve("backup_control.properties");
+        this.legacyCacheFile = legacyCacheFile;
         this.backupService = new BackupService();
         loadCache();
     }
@@ -162,17 +168,16 @@ public class AutoBackupManager {
         cacheProperties = new Properties();
 
         try {
-            // Crear directorio .cache si no existe
-            Path cacheDir = Paths.get(CACHE_DIR);
-            if (!Files.exists(cacheDir)) {
-                Files.createDirectories(cacheDir);
-                Logs.info(getClass(), "Directorio .cache creado");
+            Files.createDirectories(cacheFile.getParent());
+            // Migrar una sola vez, sin reemplazar la configuración nueva ni borrar la anterior.
+            if (!Files.exists(cacheFile) && Files.exists(legacyCacheFile)) {
+                Files.copy(legacyCacheFile, cacheFile);
+                Logs.info(getClass(), "Control de backups migrado a la carpeta de SICAM");
             }
-
-            // Cargar archivo de cache
-            Path cacheFile = Paths.get(CACHE_FILE);
             if (Files.exists(cacheFile)) {
-                cacheProperties.load(Files.newInputStream(cacheFile));
+                try (var input = Files.newInputStream(cacheFile)) {
+                    cacheProperties.load(input);
+                }
                 Logs.info(getClass(), "Cache de backups cargado");
             } else {
                 // Inicializar con valores por defecto
@@ -203,11 +208,10 @@ public class AutoBackupManager {
      */
     private void saveCache() {
         try {
-            Path cacheFile = Paths.get(CACHE_FILE);
-            cacheProperties.store(
-                Files.newOutputStream(cacheFile),
-                "Control de Backups Automáticos - Sistema de Inventario Municipal"
-            );
+            Files.createDirectories(cacheFile.getParent());
+            try (var output = Files.newOutputStream(cacheFile)) {
+                cacheProperties.store(output, "Control de Backups Automáticos - SICAM");
+            }
         } catch (IOException e) {
             Logs.error(getClass(), "Error guardando cache de backups: {}", e.getMessage());
         }

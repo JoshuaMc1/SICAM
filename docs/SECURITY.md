@@ -26,6 +26,73 @@ Authorization y AuthorizationRepository consultan el estado vigente del usuario,
 - Importar inventario es exclusivo de ROOT; exportar directamente CSV/Excel desde Inventario es exclusivo de ADMIN/ROOT.
 - Reportes comprueba lectura de los módulos consultados y los permisos de generación/exportación. Auditoría comprueba READ y EXPORT por separado.
 
+### Matriz de permisos por módulo y rol
+
+Asignaciones de una **instalación nueva**: ✅ concedido; — no concedido. Los roles personalizados y las asignaciones modificadas pueden diferir. Un permiso concedido no elimina las protecciones sobre ROOT/SYSTEM, la cuenta propia, los roles del sistema o la integridad del stock.
+
+| Módulo | Permiso | ROOT | ADMIN | AUDITOR | SUPERVISOR | OPERADOR | CONSULTOR |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| DASHBOARD | Consultar (`READ`) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| INVENTARIO | Crear (`CREATE`) | ✅ | ✅ | — | ✅ | ✅ | — |
+| INVENTARIO | Consultar (`READ`) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| INVENTARIO | Editar (`UPDATE`) | ✅ | ✅ | — | ✅ | ✅ | — |
+| INVENTARIO | Eliminar (`DELETE`) | ✅ | ✅ | — | ✅ | — | — |
+| INVENTARIO | Restaurar (`RESTORE`) | ✅ | ✅ | — | ✅ | — | — |
+| INGRESOS | Crear (`CREATE`) | ✅ | ✅ | — | ✅ | ✅ | — |
+| INGRESOS | Consultar (`READ`) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| INGRESOS | Invalidar (`DELETE`) | ✅ | ✅ | — | ✅ | — | — |
+| INGRESOS | Restaurar (`RESTORE`) | ✅ | ✅ | — | ✅ | — | — |
+| EGRESOS | Crear (`CREATE`) | ✅ | ✅ | — | ✅ | ✅ | — |
+| EGRESOS | Consultar (`READ`) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| EGRESOS | Invalidar (`DELETE`) | ✅ | ✅ | — | ✅ | — | — |
+| EGRESOS | Restaurar (`RESTORE`) | ✅ | ✅ | — | ✅ | — | — |
+| PRESTAMOS | Crear (`CREATE`) | ✅ | ✅ | — | ✅ | ✅ | — |
+| PRESTAMOS | Consultar (`READ`) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| PRESTAMOS | Invalidar (`DELETE`) | ✅ | ✅ | — | ✅ | — | — |
+| PRESTAMOS | Restaurar (`RESTORE`) | ✅ | ✅ | — | ✅ | — | — |
+| PERSONAS | Crear (`CREATE`) | ✅ | ✅ | — | ✅ | ✅ | — |
+| PERSONAS | Consultar (`READ`) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| PERSONAS | Editar (`UPDATE`) | ✅ | ✅ | — | ✅ | ✅ | — |
+| PERSONAS | Eliminar (`DELETE`) | ✅ | ✅ | — | ✅ | — | — |
+| PERSONAS | Restaurar (`RESTORE`) | ✅ | ✅ | — | ✅ | — | — |
+| USUARIOS | Crear (`CREATE`) | ✅ | ✅ | — | — | — | — |
+| USUARIOS | Consultar (`READ`) | ✅ | ✅ | ✅ | — | — | — |
+| USUARIOS | Editar (`UPDATE`) | ✅ | ✅ | — | — | — | — |
+| USUARIOS | Eliminar (`DELETE`) | ✅ | ✅ | — | — | — | — |
+| USUARIOS | Cambiar rol (`CHANGE_ROLE`) | ✅ | ✅ | — | — | — | — |
+| USUARIOS | Restaurar (`RESTORE`) | ✅ | ✅ | — | — | — | — |
+| ROLES | Crear (`CREATE`) | ✅ | ✅ | — | — | — | — |
+| ROLES | Consultar (`READ`) | ✅ | ✅ | — | — | — | — |
+| ROLES | Editar (`UPDATE`) | ✅ | ✅ | — | — | — | — |
+| ROLES | Eliminar (`DELETE`) | ✅ | ✅ | — | — | — | — |
+| ROLES | Asignar permisos (`ASSIGN_PERMISSIONS`) | ✅ | ✅ | — | — | — | — |
+| ROLES | Restaurar (`RESTORE`) | ✅ | ✅ | — | — | — | — |
+| AUDITORIA | Consultar (`READ`) | ✅ | ✅ | ✅ | — | — | — |
+| AUDITORIA | Exportar (`EXPORT`) | ✅ | ✅ | ✅ | — | — | — |
+| REPORTES | Consultar (`READ`) | ✅ | ✅ | ✅ | ✅ | — | ✅ |
+| REPORTES | Generar (`GENERATE`) | ✅ | ✅ | ✅ | ✅ | — | ✅ |
+| REPORTES | Exportar (`EXPORT`) | ✅ | ✅ | ✅ | ✅ | — | ✅ |
+| SISTEMA | Operaciones destructivas (`DESTRUCTIVE_OPERATIONS`) | ✅ | — | — | — | — | — |
+| SISTEMA | Ver eliminados/invalidados (`VIEW_DELETED`) | ✅ | ✅ | ✅ | ✅ | — | — |
+| BACKUP | Crear (`CREATE`) | ✅ | ✅ | — | — | — | — |
+| BACKUP | Consultar (`READ`) | ✅ | ✅ | — | — | — | — |
+| BACKUP | Eliminar (`DELETE`) | ✅ | ✅ | — | — | — | — |
+| **Total inicial** | **45 permisos** | 45 | 44 | 13 | 27 | 13 | 9 |
+
+Los módulos transaccionales no tienen UPDATE ni APPROVE. DELETE significa invalidar en Ingresos, Egresos y Préstamos; la eliminación permanente requiere la función reservada a ROOT. BACKUP.DELETE corresponde a borrar respaldos, no a restaurar una base.
+
+### Funciones reservadas por identidad
+
+Estas condiciones se aplican además de la matriz y no se obtienen creando un rol con permisos equivalentes:
+
+| Función | ROOT | ADMIN | AUDITOR | SUPERVISOR | OPERADOR | CONSULTOR |
+| --- | --- | --- | --- | --- | --- | --- |
+| Importar inventario | ✅ | — | — | — | — | — |
+| Exportar CSV/Excel directamente desde Inventario | ✅ | ✅ | — | — | — | — |
+| Ejecutar eliminaciones permanentes autorizadas | ✅ | — | — | — | — | — |
+
+La exportación de reportes de inventario desde **Reportes** sigue sus propios permisos: un AUDITOR o CONSULTOR puede exportar esos reportes si reúne los permisos del documento. Las celdas de REPORTES no conceden automáticamente lectura de Usuarios, Personas u otros módulos que un reporte necesite.
+
 ## Protección de identidades y registros
 
 SYSTEM está oculto en la gestión normal y no admite edición ordinaria. ROOT se oculta a usuarios no ROOT y está protegido frente a cambios no autorizados. No se puede cambiar el rol propio ni eliminar/desactivar la cuenta propia. Los roles del sistema conservan su identidad y no se eliminan cuando las reglas impiden hacerlo.

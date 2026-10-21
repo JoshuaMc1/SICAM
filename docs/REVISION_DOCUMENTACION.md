@@ -39,7 +39,7 @@ Esta revisión modifica documentación, no lógica, permisos, configuraciones, m
 
 ## Diferencias del código que quedan registradas, sin cambiarlas
 
-1. AutoBackupManager mantiene su control en `~/.inventario_municipal/.cache`; la configuración MySQL usa `.sicam` por defecto. BackupService usa el nombre final de app.secure.dir bajo user.home, no necesariamente la ruta completa personalizada.
+1. **Control automático corregido después de esta revisión:** AutoBackupManager ya usa AppConfig, por defecto `~/.sicam/.cache/`, con copia inicial de la configuración antigua si falta la nueva. Sigue pendiente que BackupService respete toda la ruta personalizada de app.secure.dir, en lugar de reconstruirla desde su nombre final bajo user.home.
 2. MySQLConfigManager no implementa salt/IV aleatorios por operación y desactiva SSL en la URL actual. Son límites reales de la implementación, no problemas resueltos al corregir el texto.
 3. Los eventos inicializan el ID de SYSTEM a 1; debe existir la cuenta correcta para no depender de esa suposición. Los horarios del cliente y MySQL pueden diferir.
 4. La migración multi-producto elimina tablas y las semillas modificadas no actualizan instalaciones anteriores. Falta un procedimiento de actualización conservando datos para esas bases.
@@ -54,3 +54,9 @@ Esta revisión modifica documentación, no lógica, permisos, configuraciones, m
 - Diccionario de columnas y lista automática contrastados con los SQL y MigrationRunner del repositorio.
 - Revisión de enlaces locales, referencias desfasadas, formato Git y preservación del PDF.
 - La última suite funcional anterior aprobó 137 pruebas. No se repite una suite de aplicación por cambios exclusivos de Markdown.
+
+## Ajustes posteriores solicitados
+
+Se cambió la implementación de AutoBackupManager para guardar el control en la carpeta de SICAM, conservar las opciones/fechas de la ubicación anterior y priorizar una configuración nueva existente. Se actualizaron las guías de rutas y arquitectura. Estos cambios posteriores sí incluyen código y pruebas, a diferencia de la revisión exclusivamente documental descrita arriba.
+
+Seguridad recupera una matriz visual con los 45 permisos, los 12 módulos y las asignaciones iniciales de los seis roles, junto con una tabla separada de funciones reservadas por identidad. La matriz se contrastó con las semillas, sin consultar ni modificar datos MySQL.

@@ -93,7 +93,7 @@ Los exportadores de Reportes y Auditoría incorporan fuentes DejaVu Sans para no
 
 App coordina conexión/configuración inicial, migraciones, inicio de sesión y ciclo de vida. MigrationRunner mantiene una lista explícita y ordenada de migraciones y registra sus nombres en schema_migrations. Después intenta configurar eventos MySQL; no utiliza indiscriminadamente todos los `.sql` del directorio.
 
-AutoBackupManager intenta respaldos al inicio y cierre normal cuando está habilitado. Sus archivos de control todavía usan una ruta histórica; consulte [GETTING_STARTED.md](GETTING_STARTED.md). BackupService ejecuta herramientas externas; sus archivos y la base de datos no forman una sola transacción distribuida.
+AutoBackupManager intenta respaldos al inicio y cierre normal cuando está habilitado. Su control se guarda bajo AppConfig en `.cache/backup_control.properties`, por defecto `~/.sicam/.cache/`. Si falta el archivo nuevo, importa la configuración antigua sin reemplazar un archivo nuevo existente ni borrar el anterior; consulte [GETTING_STARTED.md](GETTING_STARTED.md). BackupService ejecuta herramientas externas; sus archivos y la base de datos no forman una sola transacción distribuida.
 
 ## Pruebas
 

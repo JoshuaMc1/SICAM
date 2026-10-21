@@ -46,11 +46,14 @@ public class Rol extends Model {
      * Verifica si el rol tiene un permiso especifico
      */
     public boolean tienePermiso(String modulo, String accion) {
+        if (!isActiveStatus() || !isActivo() || !com.joshuamc1.sicam.core.PermissionPolicy.isSupported(modulo, accion)) return false;
+        if (isRoot()) return true;
+        if (com.joshuamc1.sicam.core.PermissionPolicy.isRootOnly(modulo, accion)) return false;
         String sql = "SELECT COUNT(*) as count FROM permisos p " +
                     "INNER JOIN rol_permisos rp ON p.id = rp.permiso_id " +
                     "WHERE rp.rol_id = ? AND p.modulo = ? AND p.accion = ?";
-        Long count = (Long) Base.firstCell(sql, getId(), modulo, accion);
-        return count != null && count > 0;
+        Number count = (Number) Base.firstCell(sql, getId(), modulo, accion);
+        return count != null && count.longValue() > 0;
     }
 
     /**
@@ -88,7 +91,7 @@ public class Rol extends Model {
      */
     public boolean isActivo() {
         Object activo = get("activo");
-        return activo != null && (activo.equals(1) || activo.equals(true));
+        return activo instanceof Number ? ((Number) activo).intValue() == 1 : Boolean.TRUE.equals(activo);
     }
 
     // ===== MÉTODOS DE SOFT DELETE Y RESTAURACIÓN =====

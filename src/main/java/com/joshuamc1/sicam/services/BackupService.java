@@ -1,5 +1,6 @@
 package com.joshuamc1.sicam.services;
 
+import com.joshuamc1.sicam.config.AppConfig;
 import com.joshuamc1.sicam.config.DatabaseConfig;
 import com.joshuamc1.sicam.config.MySQLConfigManager;
 import com.joshuamc1.sicam.core.Logs;
@@ -30,7 +31,7 @@ public class BackupService {
      */
     public Path getBackupDirectory() {
         String userHome = System.getProperty("user.home");
-        Path baseDir = Paths.get(userHome, ".inventario_municipal");
+        Path baseDir = Paths.get(userHome, AppConfig.getSecureDirName());
         Path backupDir = baseDir.resolve(BACKUP_DIR_NAME);
 
         try {
@@ -61,6 +62,7 @@ public class BackupService {
      * @throws Exception si hay un error
      */
     public Path createBackup(boolean isAutomatic) throws Exception {
+        if (!isAutomatic) com.joshuamc1.sicam.core.Authorization.require("BACKUP","CREATE");
         if (!MySQLConfigManager.hasConfig()) {
             throw new Exception("Configuración de MySQL no encontrada");
         }
@@ -283,32 +285,34 @@ public class BackupService {
      * Lista todos los backups
      */
     public List<Backup> listBackups() {
-        return Backup.findAll().orderBy("created_at DESC");
+        com.joshuamc1.sicam.core.Authorization.require("BACKUP","READ");
+        return Backup.findAll().orderBy("id DESC");
     }
 
     /**
      * Lista backups paginados
      */
     public List<Backup> listBackupsPaged(int offset, int limit) {
-        List<Backup> backups = Backup.findAll()
-            .orderBy("created_at DESC")
-            .limit(limit)
-            .offset(offset);
+        return listBackupsPaged(offset, limit, com.joshuamc1.sicam.core.PageSort.DEFAULT);
+    }
 
-        // Log para debug
-        if (!backups.isEmpty()) {
-            Backup first = backups.get(0);
-            Logs.info(getClass(), "Primer backup cargado - ID: {}, filename: {}, size_bytes DB: {}",
-                first.getId(), first.getString("filename"), first.get("size_bytes"));
-        }
-
-        return backups;
+    public List<Backup> listBackupsPaged(int offset, int limit, com.joshuamc1.sicam.core.PageSort sort) {
+        com.joshuamc1.sicam.core.Authorization.require("BACKUP", "READ");
+        String order = sort.toSql(java.util.Map.of(
+            "id", "b.id", "filename", "b.filename", "size", "b.size_bytes",
+            "user", "COALESCE(u.username, 'Desconocido')", "message", "b.error_message",
+            "date", "b.created_at", "status", "b.status"), "b.id DESC");
+        return com.joshuamc1.sicam.core.DatabaseManager.callInConnection(() ->
+            new java.util.ArrayList<>(Backup.<Backup>findBySQL(
+                "SELECT b.* FROM backups b LEFT JOIN users u ON u.id=b.usuario_id ORDER BY " + order + " LIMIT ? OFFSET ?",
+                limit, offset)));
     }
 
     /**
      * Cuenta total de backups
      */
     public long countBackups() {
+        com.joshuamc1.sicam.core.Authorization.require("BACKUP","READ");
         return Backup.count();
     }
 
@@ -316,6 +320,7 @@ public class BackupService {
      * Elimina un backup (archivo y registro)
      */
     public void deleteBackup(Integer backupId) throws Exception {
+        com.joshuamc1.sicam.core.Authorization.require("BACKUP","DELETE");
         Backup backup = Backup.findById(backupId);
         if (backup == null) {
             throw new Exception("Backup no encontrado");
@@ -347,6 +352,7 @@ public class BackupService {
      * Elimina backups antiguos (mantener solo los últimos N)
      */
     public int cleanOldBackups(int keepLast) throws Exception {
+        com.joshuamc1.sicam.core.Authorization.require("BACKUP","DELETE");
         List<Backup> allBackups = Backup.findAll().orderBy("created_at DESC");
 
         int deleted = 0;

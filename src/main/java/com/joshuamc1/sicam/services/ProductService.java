@@ -15,6 +15,7 @@ public class ProductService {
     private final AuditService auditService = new AuditService();
 
     public List<Product> findAll() {
+        if (!com.joshuamc1.sicam.core.Authorization.canAccess("DASHBOARD","READ")) com.joshuamc1.sicam.core.Authorization.require("INVENTARIO","READ");
         return DatabaseManager.callInConnection(repo::findAll);
     }
 
@@ -25,10 +26,12 @@ public class ProductService {
      * @return Lista limitada de productos
      */
     public List<Product> searchProducts(String query, int limit) {
+        com.joshuamc1.sicam.core.Authorization.require("INVENTARIO","READ");
         return DatabaseManager.callInConnection(() -> repo.searchProducts(query, limit));
     }
 
     public Product findById(Integer id) {
+        com.joshuamc1.sicam.core.Authorization.require("INVENTARIO","READ");
         return DatabaseManager.callInConnection(() -> repo.findById(id));
     }
 
@@ -39,82 +42,123 @@ public class ProductService {
      * @return Producto encontrado o null
      */
     public Product findByCode(String code) {
+        com.joshuamc1.sicam.core.Authorization.require("INVENTARIO","READ");
         return DatabaseManager.callInConnection(() -> repo.findByCode(code));
     }
 
-    public Product createProduct(String name, String desc, String unit, double minStock) {
-        return DatabaseManager.callInConnection(() ->
-                repo.create(name, desc, unit, 0.0, minStock)
-        );
+    public Product createProduct(String name,String desc,String unit,double minStock) {
+        return createProduct(name,desc,unit,0.0,minStock,null);
     }
-
-    public Product createProduct(String name, String desc, String unit, double currentStock, double minStock) {
-        Product p = DatabaseManager.callInConnection(() -> repo.create(name, desc, unit, currentStock, minStock));
-        try {
-            Integer userId = Session.getCurrentUserId();
-            String details = String.format("name=%s,unit=%s,current=%.2f,min=%.2f", name, unit, currentStock, minStock);
-
-            auditService.logAction(userId, "create", "products", p.getInteger("id"), details);
-        } catch (Exception e) {
-            Logs.error(getClass(), e.getMessage(), e);
-        }
-
-        return p;
+    public Product createProduct(String name,String desc,String unit,double currentStock,double minStock) {
+        return createProduct(name,desc,unit,currentStock,minStock,null);
+    }
+    public Product createProduct(String name,String desc,String unit,double currentStock,double minStock,String code) {
+        com.joshuamc1.sicam.core.Authorization.require("INVENTARIO","CREATE");
+        validateStock(currentStock);
+        validateStock(minStock);
+        if (code != null && !code.isBlank() && !BarcodeGenerator.isValidCode(code.trim())) throw new IllegalArgumentException("Código no válido");
+        return productWrite(() -> {
+            requireUniqueCode(code, null);
+            Product product = repo.create(name, desc, unit, currentStock, minStock);
+            if (code != null && !code.isBlank()) { product.set("code", code.trim()); repo.save(product); }
+            auditService.logAction(Session.getCurrentUserId(), "create", "products", product.getInteger("id"), "name=" + name + ",unit=" + unit);
+            return product;
+        });
     }
 
     public List<Product> findLowStockProducts() {
+        if (!com.joshuamc1.sicam.core.Authorization.canAccess("DASHBOARD","READ")) com.joshuamc1.sicam.core.Authorization.require("INVENTARIO","READ");
         return DatabaseManager.callInConnection(repo::findLowStock);
     }
 
     public long countAll() {
+        if (!com.joshuamc1.sicam.core.Authorization.canAccess("DASHBOARD","READ")) com.joshuamc1.sicam.core.Authorization.require("INVENTARIO","READ");
         return DatabaseManager.callInConnection(repo::countAll);
     }
 
     public long countLowStock() {
+        if (!com.joshuamc1.sicam.core.Authorization.canAccess("DASHBOARD","READ")) com.joshuamc1.sicam.core.Authorization.require("INVENTARIO","READ");
         return DatabaseManager.callInConnection(repo::countLowStock);
     }
 
     public long countOutOfStock() {
+        if (!com.joshuamc1.sicam.core.Authorization.canAccess("DASHBOARD","READ")) com.joshuamc1.sicam.core.Authorization.require("INVENTARIO","READ");
         return DatabaseManager.callInConnection(repo::countOutOfStock);
     }
 
     public long countCreatedThisMonth() {
+        if (!com.joshuamc1.sicam.core.Authorization.canAccess("DASHBOARD","READ")) com.joshuamc1.sicam.core.Authorization.require("INVENTARIO","READ");
         return DatabaseManager.callInConnection(repo::countCreatedThisMonth);
     }
 
     public long countCreatedLastMonth() {
+        if (!com.joshuamc1.sicam.core.Authorization.canAccess("DASHBOARD","READ")) com.joshuamc1.sicam.core.Authorization.require("INVENTARIO","READ");
         return DatabaseManager.callInConnection(repo::countCreatedLastMonth);
     }
 
     public void save(@NotNull Product product) {
-        // Normalizar código antes de guardar
+        save(product, null);
+    }
+
+    public void save(@NotNull Product product, Double expectedStock) {
+        com.joshuamc1.sicam.core.Authorization.require("INVENTARIO", "UPDATE");
         String code = product.getString("code");
-        if (code != null) {
-            code = code.trim();
-            if (code.isEmpty()) {
-                // Evitar guardar cadena vacía, dejar que el repositorio genere o mantener null
-                product.set("code", null);
-            } else if (!BarcodeGenerator.isValidCode(code)) {
-                // Si no es válido, no lo forzamos; lo registramos y lo dejamos como estaba (o null)
-                Logs.warn(getClass(), "Código de producto inválido: '{}' – se omitirá", code);
-                product.set("code", null);
-            } else {
-                product.set("code", code);
-            }
-        }
-
-        DatabaseManager.runInConnection(() -> {
+        if (code != null && !code.isBlank() && !BarcodeGenerator.isValidCode(code.trim())) throw new IllegalArgumentException("Código no válido");
+        product.set("code", code == null || code.isBlank() ? null : code.trim());
+        validateStock(product.getDouble("current_stock"));
+        validateStock(product.getDouble("minimum_stock"));
+        productWrite(() -> {
+            requireUniqueCode(product.getString("code"), product.getInteger("id"));
+            String suffix;
+            try { suffix = org.javalite.activejdbc.Base.connection().getMetaData().getDatabaseProductName().equalsIgnoreCase("MySQL") ? " FOR UPDATE" : ""; }
+            catch (java.sql.SQLException ex) { throw new IllegalStateException("No se pudo verificar el producto", ex); }
+            List<Product> matches = Product.findBySQL("SELECT * FROM products WHERE id = ?" + suffix, product.getInteger("id"));
+            if (matches.isEmpty()) throw new IllegalStateException("Producto no encontrado");
+            Product current = matches.get(0);
+            if (!java.util.Objects.equals(current.getString("status"), product.getString("status"))) throw new IllegalStateException("El estado del producto cambió; vuelva a cargarlo");
+            Double old = current.getDouble("current_stock");
+            if (expectedStock != null && Double.compare(old == null ? 0 : old, expectedStock) != 0)
+                throw new IllegalStateException("El stock cambió mientras editaba. Vuelva a cargar el producto");
             repo.save(product);
+            String details = "id=" + product.getInteger("id") + ",name=" + product.getString("name")
+                + ",stock_anterior=" + old + ",stock_nuevo=" + product.getDouble("current_stock")
+                + ",minimum=" + product.getDouble("minimum_stock");
+            auditService.logAction(Session.getCurrentUserId(), "update", "products", product.getInteger("id"), details);
+            return null;
         });
+    }
 
+    private void requireUniqueCode(String code, Integer ownId) {
+        if (code == null || code.isBlank()) return;
+        Long matches = Product.count("LOWER(code) = LOWER(?) AND id <> ?", code.trim(), ownId == null ? 0 : ownId);
+        if (matches != null && matches > 0) throw duplicateCode(null);
+    }
+
+    private IllegalArgumentException duplicateCode(Throwable cause) {
+        return new IllegalArgumentException("Ya existe un producto con ese código. Utilice uno diferente. Si está inactivo o eliminado, revise ese registro.", cause);
+    }
+
+    private <T> T productWrite(java.util.function.Supplier<T> operation) {
         try {
-            Integer userId = Session.getCurrentUserId();
-            String details = String.format("id=%s,name=%s,unit=%s,current=%.2f,min=%.2f",
-                    product.getInteger("id"), product.getString("name"), product.getString("unit"),
-                    product.getDouble("current_stock") == null ? 0.0 : product.getDouble("current_stock"),
-                    product.getDouble("minimum_stock") == null ? 0.0 : product.getDouble("minimum_stock"));
-            auditService.logAction(userId, "update", "products", product.getInteger("id"), details);
-        } catch (Exception ignored) {}
+            return DatabaseManager.callInTransaction(operation);
+        } catch (RuntimeException ex) {
+            // La restricción UNIQUE sigue protegiendo también ante altas concurrentes.
+            for (Throwable cause = ex; cause != null; cause = cause.getCause()) {
+                if (cause instanceof java.sql.SQLException) {
+                    String message = java.util.Objects.toString(cause.getMessage(), "").toLowerCase(java.util.Locale.ROOT);
+                    if (message.contains("products.code") && (message.contains("duplicate") || message.contains("unique"))) {
+                        throw duplicateCode(ex);
+                    }
+                }
+            }
+            throw ex;
+        }
+    }
+
+    private void validateStock(Double value) {
+        if (value == null || !Double.isFinite(value) || value < 0 || value > 99999999.99
+            || java.math.BigDecimal.valueOf(value).stripTrailingZeros().scale() > 2)
+            throw new IllegalArgumentException("Stock inválido: indique un número no negativo con hasta dos decimales");
     }
 
     // ===== MÉTODOS DE SOFT DELETE Y RESTAURACIÓN =====
@@ -273,6 +317,7 @@ public class ProductService {
      * @param product Producto a activar
      */
     public void markAsActive(@NotNull Product product) {
+        if (product.isDeleted()) throw new SecurityException("Los eliminados deben recuperarse mediante RESTORE");
         Integer currentUserId = Session.getCurrentUserId();
         Integer id = product.getInteger("id");
 

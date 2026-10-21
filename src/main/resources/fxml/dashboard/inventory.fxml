@@ -2,6 +2,8 @@
 
 <?import javafx.geometry.Insets?>
 <?import javafx.scene.control.Button?>
+<?import javafx.scene.control.ToggleButton?>
+<?import javafx.scene.layout.FlowPane?>
 <?import javafx.scene.control.ChoiceBox?>
 <?import javafx.scene.control.Label?>
 <?import javafx.scene.control.ScrollPane?>
@@ -68,6 +70,15 @@
                       <Font size="14.0" />
                    </font></Button>
                 </HBox>
+                <FlowPane hgap="10" vgap="8">
+                    <ToggleButton fx:id="btnStockAll" text="Todos" />
+                    <ToggleButton fx:id="btnStockNear" text="Cerca del mínimo" />
+                    <ToggleButton fx:id="btnStockBelow" text="Bajo el mínimo" />
+                    <ToggleButton fx:id="btnStockEmpty" text="Sin stock" />
+                    <ToggleButton fx:id="btnViewDeleted" text="Ver eliminados" />
+                </FlowPane>
+                <Label fx:id="lblBadge" text="Cerca del mínimo: desde el mínimo hasta un 20 % por encima. Bajo el mínimo: mayor que cero y menor que el mínimo."
+                       wrapText="true" style="-fx-text-fill: #616161;" />
             </VBox>
         </top>
 
@@ -81,6 +92,7 @@
                     <TableColumn fx:id="colUnit" prefWidth="100" text="Unidad" />
                     <TableColumn fx:id="colStock" prefWidth="100" text="Stock" />
                     <TableColumn fx:id="colMinStock" prefWidth="120" text="Stock Mínimo" />
+                    <TableColumn fx:id="colStockLevel" prefWidth="170" text="Nivel de stock" />
                     <TableColumn fx:id="colStatus" prefWidth="100" text="Estado" />
                     <TableColumn fx:id="colActions" prefWidth="150" text="Acciones" />
                 </columns>

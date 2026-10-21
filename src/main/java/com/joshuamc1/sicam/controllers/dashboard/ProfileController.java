@@ -64,6 +64,7 @@ public class ProfileController {
     @FXML
     public void onSave() {
         try {
+            com.joshuamc1.sicam.core.Authorization.requireActiveSession();
             // Validar nombre completo
             String name = txtName.getText().trim();
             if (name.isEmpty()) {

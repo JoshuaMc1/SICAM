@@ -16,11 +16,8 @@ import javafx.stage.FileChooser;
 import javafx.stage.Stage;
 import org.jetbrains.annotations.NotNull;
 
-import java.io.BufferedWriter;
 import java.io.File;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
@@ -55,6 +52,8 @@ public class AuditController implements AsyncLoadable {
     private final DateTimeFormatter outFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm");
 
     // pagination state
+    private com.joshuamc1.sicam.core.PagedTableSupport<AuditDTO> pageOrder;
+    private long loadRevision;
     private int currentPage = 1; // 1-based
     private int pageSize = 25;
     private int totalItems = 0;
@@ -111,6 +110,7 @@ public class AuditController implements AsyncLoadable {
         colCreatedAt.setStyle("-fx-font-size: 17;");
 
         tblAudit.setItems(data);
+        pageOrder = new com.joshuamc1.sicam.core.PagedTableSupport<>(tblAudit, () -> loadPageAsync(1));
 
         // pagination UI
         choicePageSize.setItems(FXCollections.observableArrayList(10,25,50,100));
@@ -163,13 +163,16 @@ public class AuditController implements AsyncLoadable {
         com.joshuamc1.sicam.core.Logs.info(getClass(), "Configurando permisos de auditoría para: {}",
             com.joshuamc1.sicam.core.Session.getCurrentUser().getString("username"));
 
-        // Los botones de exportación requieren permiso de EXPORT (si existe) o READ
-        // Por ahora, si tiene acceso al módulo (AUDITORIA.READ), puede ver y exportar
+        // La exportación requiere lectura y exportación; sin permiso se ocultan sus controles.
         if (btnExportCsv != null) {
-            com.joshuamc1.sicam.core.PermissionHelper.hideIfNoPermission(btnExportCsv, "AUDITORIA", "READ");
+            boolean allowed = com.joshuamc1.sicam.core.PermissionHelper.hasAllPermissions("AUDITORIA", "READ", "EXPORT");
+            btnExportCsv.setVisible(allowed);
+            btnExportCsv.setManaged(allowed);
         }
         if (btnExportPdf != null) {
-            com.joshuamc1.sicam.core.PermissionHelper.hideIfNoPermission(btnExportPdf, "AUDITORIA", "READ");
+            boolean allowed = com.joshuamc1.sicam.core.PermissionHelper.hasAllPermissions("AUDITORIA", "READ", "EXPORT");
+            btnExportPdf.setVisible(allowed);
+            btnExportPdf.setManaged(allowed);
         }
 
         com.joshuamc1.sicam.core.Logs.info(getClass(), "Permisos de auditoría configurados - Solo lectura y exportación");
@@ -177,19 +180,24 @@ public class AuditController implements AsyncLoadable {
 
     private void loadPageAsync(int page) {
         loading = true;
-        int pageToLoad = Math.max(1, page);
+        final long revision = ++loadRevision;
+        final int requestedSize = pageSize;
+        final String search = txtSearch.getText();
+        final var sort = pageOrder.sqlOrder(java.util.Map.of(
+            colId, "id", colUser, "user", colAction, "action", colTable, "table",
+            colRecordId, "record", colDetails, "details", colCreatedAt, "date"));
         new Thread(() -> {
             try {
-                String search = txtSearch.getText();
-                int offset = (pageToLoad - 1) * pageSize;
-                List<AuditDTO> items = auditService.getPageWithUser(offset, pageSize, search);
                 int total = auditService.countWithFilter(search);
-
+                int pages = Math.max(1, (int) Math.ceil(total / (double) requestedSize));
+                int pageToLoad = Math.min(Math.max(1, page), pages);
+                List<AuditDTO> items = auditService.getPageWithUser((pageToLoad - 1) * requestedSize, requestedSize, search, sort);
                 Platform.runLater(() -> {
-                    data.setAll(items);
+                    if (revision != loadRevision) return;
+                    pageOrder.publish(data, items);
                     totalItems = total;
-                    totalPages = Math.max(1, (int) Math.ceil((double) totalItems / pageSize));
-                    currentPage = Math.min(pageToLoad, totalPages);
+                    totalPages = pages;
+                    currentPage = pageToLoad;
                     updatePaginationControls();
                     loading = false;
                     if (onLoaded != null) onLoaded.run();
@@ -197,12 +205,13 @@ public class AuditController implements AsyncLoadable {
             } catch (Throwable t) {
                 Logs.error(this.getClass(), "Error cargando auditoría", t);
                 Platform.runLater(() -> {
+                    if (revision != loadRevision) return;
                     loading = false;
                     if (onLoaded != null) onLoaded.run();
                     showError("No se pudieron cargar registros de auditoría: " + t.getMessage());
                 });
             }
-        }).start();
+        }, "audit-loader").start();
     }
 
     private void updatePaginationControls() {
@@ -212,6 +221,7 @@ public class AuditController implements AsyncLoadable {
     }
 
     private void exportCsv() {
+        if (!com.joshuamc1.sicam.core.PermissionHelper.validateAndShow("AUDITORIA","EXPORT")) return;
         // Validar permiso de auditoría para exportar
         if (!com.joshuamc1.sicam.core.PermissionHelper.validateAndShow("AUDITORIA", "READ")) {
             return;
@@ -244,23 +254,8 @@ public class AuditController implements AsyncLoadable {
         File f = fc.showSaveDialog(tblAudit.getScene().getWindow());
         if (f == null) return;
 
-        try (BufferedWriter bw = Files.newBufferedWriter(f.toPath(), StandardCharsets.UTF_8)) {
-            // header
-            bw.write("id,usuario_id,usuario_name,accion,tabla_afectada,registro_afectado_id,detalles,fecha\n");
-            for (AuditDTO r : dataToExport) {
-                String line = String.format("%d,%s,%s,%s,%s,%s,%s,%s\n",
-                        r.getId() != null ? r.getId() : 0,
-                        r.getUsuarioId() != null ? r.getUsuarioId() : "",
-                        quoteCsv(r.getUsuarioName()),
-                        quoteCsv(r.getAccion()),
-                        quoteCsv(r.getTablaAfectada()),
-                        r.getRegistroAfectadoId() != null ? r.getRegistroAfectadoId() : "",
-                        quoteCsv(r.getDetalles()),
-                        quoteCsv(r.getFecha())
-                );
-                bw.write(line);
-            }
-            bw.flush();
+        try {
+            com.joshuamc1.sicam.export.CsvAuditExporter.export(dataToExport, f);
             showInfo("Exportado", String.format("CSV exportado: %s%n%d registros exportados",
                 f.getAbsolutePath(), dataToExport.size()));
         } catch (IOException ex) {
@@ -269,16 +264,8 @@ public class AuditController implements AsyncLoadable {
         }
     }
 
-    private @NotNull String quoteCsv(String s) {
-        if (s == null) return "";
-        String esc = s.replace("\"", "\"\"");
-        if (esc.contains(",") || esc.contains("\n") || esc.contains("\r")) {
-            return "\"" + esc + "\"";
-        }
-        return esc;
-    }
-
     private void exportPdf() {
+        if (!com.joshuamc1.sicam.core.PermissionHelper.validateAndShow("AUDITORIA","EXPORT")) return;
         // Validar permiso de auditoría para exportar
         if (!com.joshuamc1.sicam.core.PermissionHelper.validateAndShow("AUDITORIA", "READ")) {
             return;
@@ -324,30 +311,20 @@ public class AuditController implements AsyncLoadable {
         progressDialog.getDialogPane().setContent(box);
         progressDialog.getDialogPane().setHeaderText(null);
         progressDialog.setResizable(false);
-        progressDialog.getDialogPane().lookupButton(cancelType).addEventFilter(javafx.event.ActionEvent.ACTION, e -> {
-            // marcar cancelación
-            lblStatus.setText("Cancelando...");
-        });
-
         // Task de exportación
-        final boolean[] cancelled = {false};
+        final java.util.concurrent.atomic.AtomicBoolean cancelled = new java.util.concurrent.atomic.AtomicBoolean();
+        final String generatedBy = com.joshuamc1.sicam.core.Session.getCurrentUsername();
         final List<AuditDTO> finalDataToExport = dataToExport;
         Task<Void> task = new Task<>() {
             @Override
-            protected Void call() {
-                try {
-                    updateMessage("Preparando documento...");
-                    PdfAuditExporter.export(finalDataToExport, f, p -> {
-                        updateProgress(p, 1.0);
-                        updateMessage(String.format("Procesando %.0f%%", p * 100));
-                        if (cancelled[0]) {
-                            updateMessage("Cancelado por el usuario");
-                        }
-                    }, () -> cancelled[0], com.joshuamc1.sicam.core.Session.getCurrentUsername());
-                } catch (IOException ex) {
-                    Logs.error(this.getClass(), "Error exportando PDF", ex);
-                    Platform.runLater(() -> showError("No se pudo exportar PDF: " + ex.getMessage()));
-                }
+            protected Void call() throws IOException {
+                updateMessage("Preparando documento...");
+                PdfAuditExporter.export(finalDataToExport, f, p -> {
+                    updateProgress(p, 1.0);
+                    updateMessage(String.format("Procesando %.0f%%", p * 100));
+                }, () -> cancelled.get() || isCancelled(), generatedBy,
+                    exportOpts.isExportAll() ? "Todos los registros" : "Del " + exportOpts.getFromDate()
+                        + " al " + exportOpts.getToDate() + " (fecha de registro)");
                 return null;
             }
         };
@@ -356,18 +333,19 @@ public class AuditController implements AsyncLoadable {
         lblStatus.textProperty().bind(task.messageProperty());
 
         task.setOnSucceeded(ev -> {
-            if (!cancelled[0]) {
+            if (!cancelled.get()) {
                 showInfo("Exportado", String.format("PDF exportado: %s%n%d registros exportados",
                     f.getAbsolutePath(), finalDataToExport.size()));
             }
             progressDialog.close();
         });
         task.setOnFailed(ev -> {
-            showError("Fallo exportación PDF");
+            Logs.error(getClass(), "Error exportando auditoría a PDF", task.getException());
             progressDialog.close();
+            showError("No se pudo exportar el PDF. Revise el registro de errores.");
         });
         task.setOnCancelled(ev -> {
-            cancelled[0] = true;
+            cancelled.set(true);
             showInfo("Cancelado", "Exportación cancelada");
             progressDialog.close();
         });
@@ -375,7 +353,7 @@ public class AuditController implements AsyncLoadable {
         // Botón cancelar efectúa cancel
         progressDialog.setOnCloseRequest(e -> {
             if (!task.isDone()) {
-                cancelled[0] = true;
+                cancelled.set(true);
                 task.cancel();
             }
         });

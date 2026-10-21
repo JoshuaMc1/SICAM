@@ -19,7 +19,7 @@ public class TransactionRepository {
     // ===== MÉTODOS DE BÚSQUEDA CON FILTRADO DE ESTADO =====
 
     public List<Transaction> findByProduct(Integer productId) {
-        return Transaction.where("product_id = ?", productId).orderBy("created_at DESC");
+        return Transaction.where("product_id = ?", productId).orderBy("id DESC");
     }
 
     /**
@@ -27,7 +27,7 @@ public class TransactionRepository {
      */
     public List<Transaction> findByType(String type) {
         return Transaction.where("type = ? AND status = ?", type, Transaction.STATUS_ACTIVE)
-            .orderBy("created_at DESC");
+            .orderBy("id DESC");
     }
 
     /**
@@ -35,7 +35,7 @@ public class TransactionRepository {
      */
     public List<Transaction> findByTypeIncludingInvalidated(String type) {
         return Transaction.where("type = ?", type)
-            .orderBy("created_at DESC");
+            .orderBy("id DESC");
     }
 
     /**
@@ -43,7 +43,7 @@ public class TransactionRepository {
      */
     public List<Transaction> findInvalidatedByType(String type) {
         return Transaction.where("type = ? AND status = ?", type, Transaction.STATUS_INVALIDATED)
-            .orderBy("invalidated_at DESC");
+            .orderBy("id DESC");
     }
 
     // ===== MÉTODOS DE CONTEO =====
@@ -61,7 +61,7 @@ public class TransactionRepository {
      */
     public List<Transaction> findByTypePage(String type, int limit, int offset) {
         return Transaction.where("type = ? AND status = ?", type, Transaction.STATUS_ACTIVE)
-                .orderBy("created_at DESC")
+                .orderBy("id DESC")
                 .limit(limit)
                 .offset(offset);
     }
@@ -80,7 +80,7 @@ public class TransactionRepository {
      */
     public List<Transaction> findLatest(int limit) {
         return Transaction.where("status = ?", Transaction.STATUS_ACTIVE)
-            .orderBy("created_at DESC")
+            .orderBy("id DESC")
             .limit(limit);
     }
 
@@ -117,7 +117,7 @@ public class TransactionRepository {
         return Transaction.where(
             "created_at >= DATE_SUB(CURDATE(), INTERVAL 30 DAY) AND status = ?",
             Transaction.STATUS_ACTIVE
-        ).orderBy("created_at DESC");
+        ).orderBy("id DESC");
     }
 
     public java.util.Map<String, Long> getMostMovedProducts(int limit) {
@@ -269,11 +269,11 @@ public class TransactionRepository {
      */
     public List<Transaction> findPendingLoans() {
         return Transaction.where(
-            "type = ? AND loan_status = ? AND status = ?",
+            "type = ? AND loan_status IN (?, 'overdue') AND status = ?",
             Transaction.TYPE_LOAN,
             Transaction.LOAN_STATUS_PENDING,
             Transaction.STATUS_ACTIVE
-        ).orderBy("expected_return_date ASC");
+        ).orderBy("expected_return_date ASC, id DESC");
     }
 
     /**
@@ -281,12 +281,13 @@ public class TransactionRepository {
      */
     public List<Transaction> findOverdueLoans() {
         return Transaction.where(
-            "type = ? AND ((loan_status = ? AND expected_return_date < CURDATE()) OR loan_status = ?) AND status = ?",
+            "type = ? AND ((loan_status = ? AND expected_return_date < ?) OR loan_status = ?) AND status = ?",
             Transaction.TYPE_LOAN,
             Transaction.LOAN_STATUS_PENDING,
+            java.time.LocalDate.now().toString(),
             Transaction.LOAN_STATUS_OVERDUE,
             Transaction.STATUS_ACTIVE
-        ).orderBy("expected_return_date ASC");
+        ).orderBy("expected_return_date ASC, id DESC");
     }
 
     /**
@@ -344,7 +345,7 @@ public class TransactionRepository {
         String pattern = "%" + searchText.trim().toUpperCase() + "%";
 
         return Transaction.where(
-            "type = ? AND loan_status = ? AND status = ? AND loan_code LIKE ? ORDER BY loan_code DESC LIMIT 10",
+            "type = ? AND loan_status IN (?, 'overdue') AND status = ? AND loan_code LIKE ? ORDER BY loan_code DESC LIMIT 10",
             Transaction.TYPE_LOAN,
             "pending",
             Transaction.STATUS_ACTIVE,
@@ -375,7 +376,7 @@ public class TransactionRepository {
             Transaction.LOAN_STATUS_PENDING,
             days,
             Transaction.STATUS_ACTIVE
-        ).orderBy("expected_return_date ASC");
+        ).orderBy("expected_return_date ASC, id DESC");
     }
 
     /**
@@ -387,7 +388,7 @@ public class TransactionRepository {
             Transaction.TYPE_LOAN,
             personId,
             Transaction.STATUS_ACTIVE
-        ).orderBy("created_at DESC");
+        ).orderBy("id DESC");
     }
 
     /**
@@ -400,6 +401,6 @@ public class TransactionRepository {
             personId,
             Transaction.LOAN_STATUS_PENDING,
             Transaction.STATUS_ACTIVE
-        ).orderBy("expected_return_date ASC");
+        ).orderBy("expected_return_date ASC, id DESC");
     }
 }

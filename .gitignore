@@ -48,3 +48,8 @@ inventario_municipal_prod.db
 .dev-notes/
 .cache/
 
+
+# Capturas locales de diagnóstico de SICAM
+/qa-evidence/
+/evidence/
+/docs/qa/

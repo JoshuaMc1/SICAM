@@ -12,6 +12,19 @@
         <!-- Título principal -->
         <Label text="Generador de Reportes" style="-fx-font-size: 28px; -fx-font-weight: bold;" />
 
+        <VBox spacing="8" style="-fx-padding: 12; -fx-background-color: #ecf0f1;">
+            <FlowPane hgap="12" vgap="8" alignment="CENTER_LEFT">
+                <Label text="Estado de transacciones:" />
+                <ChoiceBox fx:id="transactionStatusFilter" prefWidth="160" />
+                <Label text="Nivel de stock (inventario completo y por fecha):" />
+                <ChoiceBox fx:id="stockLevelFilter" prefWidth="180" />
+                <CheckBox fx:id="includeDeleted" text="Incluir productos y usuarios eliminados" />
+            </FlowPane>
+            <Label text="El estado se aplica a movimientos e históricos. Consumo, rotación y préstamos vigentes excluyen transacciones invalidadas y artículos cancelados."
+                   wrapText="true" />
+            <Label text="Fechas: movimientos por fecha de operación; actividad del usuario por fecha de registro. Existencias: valores actuales, no reconstrucción histórica."
+                   wrapText="true" />
+        </VBox>
         <Separator />
 
         <!-- Sección: Reportes de Usuarios -->
@@ -24,7 +37,7 @@
                     <Label text="Usuarios del Sistema" style="-fx-font-size: 16px; -fx-font-weight: bold;">
                         <font><Font name="System Bold" size="16.0" /></font>
                     </Label>
-                    <Label text="Lista completa de todos los usuarios del sistema."
+                    <Label text="Listado de usuarios del sistema, sin cuentas SYSTEM ni ROOT."
                            style="-fx-text-fill: #7f8c8d; -fx-font-size: 13px;" wrapText="true" />
                 </VBox>
                 <Button fx:id="btnUsersNoRootCsv" text="Exportar CSV" style="-fx-min-width: 120;">
@@ -41,7 +54,7 @@
                     <Label text="Usuarios Agrupados por Rol" style="-fx-font-size: 16px; -fx-font-weight: bold;">
                         <font><Font name="System Bold" size="16.0" /></font>
                     </Label>
-                    <Label text="Reporte de usuarios organizados y agrupados por su rol asignado en el sistema."
+                    <Label text="Usuarios organizados por rol, con una tabla independiente por grupo en el PDF."
                            style="-fx-text-fill: #7f8c8d; -fx-font-size: 13px;" wrapText="true" />
                 </VBox>
                 <Button fx:id="btnUsersGroupedCsv" text="Exportar CSV" style="-fx-min-width: 120;">
@@ -62,10 +75,10 @@
             <!-- Reporte 1: Productos Más Movidos -->
             <HBox spacing="15" alignment="CENTER_LEFT" style="-fx-padding: 10; -fx-background-color: #d4edda; -fx-background-radius: 5;">
                 <VBox spacing="5" HBox.hgrow="ALWAYS">
-                    <Label text="Productos Más Movidos (Top 20)" style="-fx-font-size: 16px; -fx-font-weight: bold;">
+                    <Label text="Productos con mayor movimiento" style="-fx-font-size: 16px; -fx-font-weight: bold;">
                         <font><Font name="System Bold" size="16.0" /></font>
                     </Label>
-                    <Label text="Top 20 productos con más transacciones. Útil para planificar compras y detectar productos críticos."
+                    <Label text="Todos los productos del período, ordenados por transacciones vigentes; cantidades separadas por producto y unidad, excluyendo artículos cancelados."
                            style="-fx-text-fill: #155724; -fx-font-size: 13px;" wrapText="true" />
                 </VBox>
                 <Button fx:id="btnProductsMostMovedCsv" text="Exportar CSV" style="-fx-min-width: 120;">
@@ -82,7 +95,7 @@
                     <Label text="Personas con Préstamos Activos" style="-fx-font-size: 16px; -fx-font-weight: bold;">
                         <font><Font name="System Bold" size="16.0" /></font>
                     </Label>
-                    <Label text="Control de préstamos activos con días transcurridos. Seguimiento de responsabilidades."
+                    <Label text="Responsable, teléfono, productos y fecha prevista de devolución. Una fila por préstamo; vencidos primero."
                            style="-fx-text-fill: #155724; -fx-font-size: 13px;" wrapText="true" />
                 </VBox>
                 <Button fx:id="btnPeopleWithLoansCsv" text="Exportar CSV" style="-fx-min-width: 120;">
@@ -99,7 +112,7 @@
                     <Label text="Consumo Mensual de Productos" style="-fx-font-size: 16px; -fx-font-weight: bold;">
                         <font><Font name="System Bold" size="16.0" /></font>
                     </Label>
-                    <Label text="Análisis de consumo de productos por mes. Detecta patrones y ayuda en la planificación."
+                    <Label text="Cantidad consumida y número de egresos vigentes por producto y mes. Últimos 12 meses, incluyendo el mes actual hasta hoy."
                            style="-fx-text-fill: #155724; -fx-font-size: 13px;" wrapText="true" />
                 </VBox>
                 <Button fx:id="btnMonthlyConsumptionCsv" text="Exportar CSV" style="-fx-min-width: 120;">
@@ -116,7 +129,7 @@
                     <Label text="Productos Sin Movimiento" style="-fx-font-size: 16px; -fx-font-weight: bold;">
                         <font><Font name="System Bold" size="16.0" /></font>
                     </Label>
-                    <Label text="Productos sin transacciones en los últimos 90 días. Detecta productos obsoletos o de baja rotación."
+                    <Label text="Productos sin movimientos vigentes durante al menos 90 días; para productos sin movimientos se usa su fecha de registro."
                            style="-fx-text-fill: #721c24; -fx-font-size: 13px;" wrapText="true" />
                 </VBox>
                 <Button fx:id="btnProductsNoMovementCsv" text="Exportar CSV" style="-fx-min-width: 120;">
@@ -133,7 +146,7 @@
                     <Label text="Actividad Detallada por Usuario" style="-fx-font-size: 16px; -fx-font-weight: bold;">
                         <font><Font name="System Bold" size="16.0" /></font>
                     </Label>
-                    <Label text="Auditoría detallada de actividad diaria de un usuario específico con desglose por tipo."
+                    <Label text="Detalle de transacciones registradas por un usuario: productos, estados, notas e invalidaciones. Seleccione un período o todas las fechas."
                            style="-fx-text-fill: #155724; -fx-font-size: 13px;" wrapText="true" />
                 </VBox>
                 <Button fx:id="btnUserActivityCsv" text="Exportar CSV" style="-fx-min-width: 120;">
@@ -150,7 +163,7 @@
                     <Label text="Dashboard Mensual con KPIs" style="-fx-font-size: 16px; -fx-font-weight: bold;">
                         <font><Font name="System Bold" size="16.0" /></font>
                     </Label>
-                    <Label text="Resumen ejecutivo mensual con KPIs principales: inventario, transacciones y actividad del sistema."
+                    <Label text="Actividad del mes por fecha de operación y estado; existencias actuales separadas y cantidades agrupadas por unidad."
                            style="-fx-text-fill: #004085; -fx-font-size: 13px;" wrapText="true" />
                 </VBox>
                 <Button fx:id="btnMonthlyDashboardCsv" text="Exportar CSV" style="-fx-min-width: 120;">
@@ -185,13 +198,13 @@
                 </Button>
             </HBox>
 
-            <!-- Reporte 2: Productos con Stock Bajo -->
+            <!-- Reporte 2: Productos Bajo el Mínimo -->
             <HBox spacing="15" alignment="CENTER_LEFT" style="-fx-padding: 10; -fx-background-color: #ecf0f1; -fx-background-radius: 5;">
                 <VBox spacing="5" HBox.hgrow="ALWAYS">
-                    <Label text="Productos con Stock Bajo" style="-fx-font-size: 16px; -fx-font-weight: bold;">
+                    <Label text="Productos Bajo el Mínimo" style="-fx-font-size: 16px; -fx-font-weight: bold;">
                         <font><Font name="System Bold" size="16.0" /></font>
                     </Label>
-                    <Label text="Productos cuyo stock actual es igual o menor al stock mínimo establecido. Ideal para planificar compras."
+                    <Label text="Productos con stock positivo menor que el mínimo; cerca del mínimo y sin stock se consultan por separado. Ideal para planificar compras."
                            style="-fx-text-fill: #7f8c8d; -fx-font-size: 13px;" wrapText="true" />
                 </VBox>
                 <Button fx:id="btnInventoryLowStockCsv" text="Exportar CSV" style="-fx-min-width: 120;">
@@ -208,7 +221,7 @@
                     <Label text="Productos Sin Stock" style="-fx-font-size: 16px; -fx-font-weight: bold;">
                         <font><Font name="System Bold" size="16.0" /></font>
                     </Label>
-                    <Label text="Productos que actualmente tienen stock en cero. Requieren reabastecimiento urgente."
+                    <Label text="Productos que actualmente tienen stock igual o menor que cero. Requieren reabastecimiento urgente."
                            style="-fx-text-fill: #7f8c8d; -fx-font-size: 13px;" wrapText="true" />
                 </VBox>
                 <Button fx:id="btnInventoryOutOfStockCsv" text="Exportar CSV" style="-fx-min-width: 120;">
@@ -225,7 +238,7 @@
                     <Label text="Movimientos de Inventario (Últimos 30 días)" style="-fx-font-size: 16px; -fx-font-weight: bold;">
                         <font><Font name="System Bold" size="16.0" /></font>
                     </Label>
-                    <Label text="Historial de todas las transacciones: ingresos, egresos y préstamos realizados en el último mes."
+                    <Label text="Historial de los últimos 30 días, con estado e invalidación y una transacción con desglose de sus productos, cantidades y unidades."
                            style="-fx-text-fill: #7f8c8d; -fx-font-size: 13px;" wrapText="true" />
                 </VBox>
                 <Button fx:id="btnInventoryMovementsCsv" text="Exportar CSV" style="-fx-min-width: 120;">

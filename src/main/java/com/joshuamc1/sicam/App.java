@@ -25,9 +25,9 @@ public class App extends Application {
 
     public void start(@NotNull Stage stage) {
         Thread.setDefaultUncaughtExceptionHandler((t, e) -> {
-            Logs.error(App.class, "Uncaught exception in thread {}: {}", t.getName(), e.getMessage());
-            Logs.trace(App.class, "Trace:", e);
-            Utils.showAlert("Error inesperado", "Se produjo un error inesperado: " + e.getMessage());
+            Logs.error(App.class, "Uncaught exception in thread " + t.getName(), e);
+            javafx.application.Platform.runLater(() -> Utils.showAlert("Error inesperado",
+                "No se pudo completar la operación. Si el problema continúa, revise el registro de errores."));
         });
 
         // Verificar si la base de datos MySQL está configurada

@@ -47,7 +47,11 @@ public class TransactionTypeDialog {
         grid.setPadding(new Insets(20, 150, 10, 10));
 
         ComboBox<TransactionType> typeCombo = new ComboBox<>();
-        typeCombo.getItems().addAll(TransactionType.values());
+        for(TransactionType type: TransactionType.values()) {
+            String module=switch(type) { case IN -> "INGRESOS"; case OUT -> "EGRESOS"; case LOAN -> "PRESTAMOS"; };
+            if(com.joshuamc1.sicam.core.PermissionHelper.canAccess(module,"READ")) typeCombo.getItems().add(type);
+        }
+        dialog.getDialogPane().lookupButton(selectButtonType).disableProperty().bind(typeCombo.valueProperty().isNull());
         typeCombo.getSelectionModel().selectFirst();
         typeCombo.setPromptText("Seleccione tipo");
         typeCombo.setPrefWidth(200);

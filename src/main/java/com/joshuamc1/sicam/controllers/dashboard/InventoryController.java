@@ -6,9 +6,11 @@ import com.joshuamc1.sicam.core.PermissionHelper;
 import com.joshuamc1.sicam.core.Session;
 import com.joshuamc1.sicam.core.Utils;
 import com.joshuamc1.sicam.core.enums.Units;
+import com.joshuamc1.sicam.core.enums.StockLevel;
 import com.joshuamc1.sicam.models.Product;
 import com.joshuamc1.sicam.models.User;
 import com.joshuamc1.sicam.services.ProductService;
+import com.joshuamc1.sicam.services.InventoryImportService;
 import com.joshuamc1.sicam.config.DatabaseConfig;
 import javafx.beans.property.SimpleDoubleProperty;
 import javafx.beans.property.SimpleIntegerProperty;
@@ -51,7 +53,17 @@ public class InventoryController {
     @FXML private TableColumn<Product, String> colUnit;
     @FXML private TableColumn<Product, Double> colStock;
     @FXML private TableColumn<Product, Double> colMinStock;
+    @FXML private TableColumn<Product, StockLevel> colStockLevel;
+    @FXML private ToggleButton btnStockAll;
+    @FXML private ToggleButton btnViewDeleted;
+    private boolean showDeleted;
+    private boolean canViewDeleted;
+    @FXML private ToggleButton btnStockNear;
+    @FXML private ToggleButton btnStockBelow;
+    @FXML private ToggleButton btnStockEmpty;
+    private StockLevel stockFilter;
     @FXML private TableColumn<Product, Void> colActions;
+    @FXML private Label lblBadge;
 
     @FXML private Button btnRefresh;
     @FXML private Button btnNew;
@@ -77,6 +89,7 @@ public class InventoryController {
     private boolean canRestore = false;
 
     private List<Product> allProducts = FXCollections.observableArrayList();
+    private boolean updatingPage;
     private final ObservableList<Product> currentPageItems = FXCollections.observableArrayList();
 
     @FXML
@@ -84,10 +97,43 @@ public class InventoryController {
         // Configurar permisos primero
         canRestore = com.joshuamc1.sicam.core.PermissionHelper.canAccess("INVENTARIO", "RESTORE");
 
+        ToggleGroup stockFilters = new ToggleGroup();
+        for (ToggleButton button : List.of(btnStockAll, btnStockNear, btnStockBelow, btnStockEmpty)) {
+            button.setToggleGroup(stockFilters);
+        }
+        btnStockNear.setUserData(StockLevel.NEAR_MINIMUM);
+        btnStockBelow.setUserData(StockLevel.BELOW_MINIMUM);
+        btnStockEmpty.setUserData(StockLevel.OUT_OF_STOCK);
+        btnStockAll.setSelected(true);
+        stockFilters.selectedToggleProperty().addListener((obs, previous, selected) -> {
+            if (selected == null) {
+                btnStockAll.setSelected(true);
+                return;
+            }
+            stockFilter = (StockLevel) selected.getUserData();
+            currentPage = 1;
+            applyFiltersAndPagination();
+        });
+        btnStockNear.setTooltip(new Tooltip("Stock entre el mínimo y un 20 % por encima del mínimo."));
+        btnStockBelow.setTooltip(new Tooltip("Stock mayor que cero y menor que el mínimo."));
+        btnStockEmpty.setTooltip(new Tooltip("Stock igual o menor que cero."));
+
         setupTable();
         configurePermissions();
         loadProducts();
 
+        btnViewDeleted.setOnAction(e -> {
+            if (!PermissionHelper.validateAndShow("SISTEMA", "VIEW_DELETED")) {
+                btnViewDeleted.setSelected(false);
+                return;
+            }
+            showDeleted = btnViewDeleted.isSelected();
+            stockFilter = null;
+            btnStockAll.setSelected(true);
+            updateDeletedView();
+            currentPage = 1;
+            loadProducts();
+        });
         btnRefresh.setOnAction(e -> loadProducts());
         btnNew.setOnAction(e -> openCreateDialog());
         btnEdit.setOnAction(e -> openEditDialog());
@@ -108,6 +154,8 @@ public class InventoryController {
             btnExport.setManaged(canExport);
             btnExport.setOnAction(e -> openExportDialog());
         }
+
+        updateDeletedView();
 
         // Búsqueda automática con debounce de 500ms
         javafx.animation.PauseTransition searchPause = new javafx.animation.PauseTransition(javafx.util.Duration.millis(500));
@@ -180,6 +228,8 @@ public class InventoryController {
         }
 
         Logs.info(getClass(), "Permisos de inventario configurados");
+        canViewDeleted = PermissionHelper.canAccess("SISTEMA", "VIEW_DELETED");
+        updateDeletedView();
     }
 
     private void setupTable() {
@@ -201,6 +251,25 @@ public class InventoryController {
             return new SimpleDoubleProperty(v == null ? 0.0 : v).asObject();
         });
 
+        colStockLevel.setCellValueFactory(c -> new javafx.beans.property.SimpleObjectProperty<>(
+            StockLevel.classify(c.getValue().getDouble("current_stock"), c.getValue().getDouble("minimum_stock"))));
+        colStockLevel.setCellFactory(col -> new TableCell<>() {
+            @Override
+            protected void updateItem(StockLevel level, boolean empty) {
+                super.updateItem(level, empty);
+                setText(null);
+                if (empty || level == null) {
+                    setGraphic(null);
+                    return;
+                }
+                Label badge = new Label(level.getLabel());
+                badge.setStyle("-fx-background-color: " + level.getColor()
+                    + "; -fx-text-fill: " + (level == StockLevel.NEAR_MINIMUM ? "#212121" : "white")
+                    + "; -fx-padding: 5 10; -fx-background-radius: 5;");
+                setGraphic(badge);
+            }
+        });
+
         // Columna de estado con badge visual
         colStatus.setCellFactory(col -> new TableCell<>() {
             @Override
@@ -211,11 +280,10 @@ public class InventoryController {
                     setText(null);
                 } else {
                     Product product = getTableView().getItems().get(getIndex());
-                    boolean isActive = product.isActive();
-                    Label badge = new Label(isActive ? "Activo" : "Inactivo");
-                    badge.setStyle(isActive
-                            ? "-fx-background-color: #4CAF50; -fx-text-fill: white; -fx-padding: 5 10; -fx-background-radius: 5;"
-                            : "-fx-background-color: #9E9E9E; -fx-text-fill: white; -fx-padding: 5 10; -fx-background-radius: 5;");
+                    String label = product.isDeleted() ? "Eliminado" : product.isActive() ? "Activo" : "Inactivo";
+                    String color = product.isDeleted() ? "#D32F2F" : product.isActive() ? "#4CAF50" : "#9E9E9E";
+                    Label badge = new Label(label);
+                    badge.setStyle("-fx-background-color: " + color + "; -fx-text-fill: white; -fx-padding: 5 10; -fx-background-radius: 5;");
                     setGraphic(badge);
                     setText(null);
                 }
@@ -290,9 +358,18 @@ public class InventoryController {
         colUnit.setStyle("-fx-font-size: 17;");
         colStock.setStyle("-fx-font-size: 17;");
         colMinStock.setStyle("-fx-font-size: 17;");
+        colStockLevel.setStyle("-fx-font-size: 17;");
+        lblBadge.setStyle("-fx-font-size: 14; -fx-font-weight: bold;");
         colActions.setStyle("-fx-font-size: 17;");
 
         tblProducts.getSelectionModel().setSelectionMode(SelectionMode.SINGLE);
+        tblProducts.setSortPolicy(table -> {
+            if (!updatingPage) {
+                currentPage = 1;
+                applyFiltersAndPagination();
+            }
+            return true;
+        });
     }
 
     private void loadProducts() {
@@ -301,15 +378,18 @@ public class InventoryController {
             protected java.util.List<Product> call() {
                 DatabaseConfig.openConnection();
                 try {
+                    com.joshuamc1.sicam.core.Authorization.require("INVENTARIO","READ");
                     List<Product> products = productService.findAll();
 
-                    // Si tiene permiso de restaurar, incluir eliminados
-                    if (canRestore) {
+                    // Consultar eliminados solo con el permiso de visualización correspondiente
+                    if (com.joshuamc1.sicam.core.PermissionHelper.canAccess("SISTEMA","VIEW_DELETED")) {
                         List<Product> deleted = productService.findDeleted();
                         products = new java.util.ArrayList<>(products);
                         products.addAll(deleted);
                     }
 
+                    products = new java.util.ArrayList<>(products);
+                    products.sort(java.util.Comparator.comparing((Product product) -> product.getInteger("id")).reversed());
                     return products;
                 } finally {
                     DatabaseConfig.closeConnection();
@@ -319,6 +399,9 @@ public class InventoryController {
 
         task.setOnSucceeded(evt -> {
             allProducts = task.getValue();
+            canViewDeleted = PermissionHelper.canAccess("SISTEMA", "VIEW_DELETED");
+            if (!canViewDeleted) showDeleted = false;
+            updateDeletedView();
             currentPage = 1;
             applyFiltersAndPagination();
         });
@@ -330,6 +413,18 @@ public class InventoryController {
         Thread th = new Thread(task, "inventory-loader");
         th.setDaemon(true);
         th.start();
+    }
+
+    private void updateDeletedView() {
+        btnViewDeleted.setVisible(canViewDeleted);
+        btnViewDeleted.setManaged(canViewDeleted);
+        btnViewDeleted.setSelected(showDeleted);
+        btnViewDeleted.setText(showDeleted ? "Ver inventario" : "Ver eliminados");
+        for (ToggleButton button : List.of(btnStockAll, btnStockNear, btnStockBelow, btnStockEmpty)) {
+            button.setDisable(showDeleted);
+        }
+        btnEdit.setDisable(showDeleted);
+        btnDelete.setDisable(showDeleted && !PermissionHelper.canAccess("SISTEMA", "DESTRUCTIVE_OPERATIONS"));
     }
 
     private void applyFiltersAndPagination() {
@@ -350,14 +445,33 @@ public class InventoryController {
                 })
                 .collect(java.util.stream.Collectors.toList());
         }
+        filtered = filtered.stream()
+            .filter(product -> product.isDeleted() ? showDeleted && canViewDeleted : !showDeleted)
+            .collect(java.util.stream.Collectors.toList());
+        if (stockFilter != null) {
+            filtered = filtered.stream()
+                .filter(product -> !product.isDeleted())
+                .filter(product -> StockLevel.classify(product.getDouble("current_stock"),
+                    product.getDouble("minimum_stock")) == stockFilter)
+                .collect(java.util.stream.Collectors.toList());
+        }
+        java.util.Comparator<Product> order = tblProducts.getComparator();
+        java.util.Comparator<Product> newestFirst = java.util.Comparator.comparing(
+            (Product product) -> product.getInteger("id")).reversed();
+        filtered.sort(order == null ? newestFirst : order.thenComparing(newestFirst));
         totalItems = filtered.size();
         totalPages = Math.max(1, (int)Math.ceil(totalItems / (double)pageSize));
         if (currentPage > totalPages) currentPage = totalPages;
         int fromIndex = (currentPage - 1) * pageSize;
         int toIndex = Math.min(fromIndex + pageSize, totalItems);
         List<Product> pageSlice = fromIndex >= toIndex ? java.util.Collections.emptyList() : filtered.subList(fromIndex, toIndex);
-        currentPageItems.setAll(pageSlice);
-        tblProducts.setItems(currentPageItems);
+        updatingPage = true;
+        try {
+            currentPageItems.setAll(pageSlice);
+            tblProducts.setItems(currentPageItems);
+        } finally {
+            updatingPage = false;
+        }
         updatePaginationControls();
     }
 
@@ -510,13 +624,16 @@ public class InventoryController {
                     return null;
                 }
 
-                Product product = productService.createProduct(name, desc, unit.getDbValue(), current, min);
-                // Asignar código si se proporcionó
-                if (!code.isEmpty()) {
-                    product.set("code", code.trim());
-                    productService.save(product);
+                try {
+                    return productService.createProduct(name, desc, unit.getDbValue(), current, min, code);
+                } catch (IllegalArgumentException | IllegalStateException ex) {
+                    Utils.showAlert("No se pudo crear el producto", ex.getMessage());
+                    return null;
+                } catch (RuntimeException ex) {
+                    Logs.error(getClass(), "Error creando producto", ex);
+                    Utils.showAlert("No se pudo crear el producto", "No fue posible guardar el producto. Intente nuevamente; si el problema continúa, revise el registro de errores.");
+                    return null;
                 }
-                return product;
             }
             return null;
         });
@@ -555,6 +672,7 @@ public class InventoryController {
         TextArea txtDesc = new TextArea(sel.getString("description"));
         ComboBox<Units> cbUnit = new ComboBox<>(FXCollections.observableArrayList(Units.values()));
         cbUnit.setValue(Units.fromDbValue(sel.getString("unit")));
+        final double originalStock = sel.getDouble("current_stock") == null ? 0d : sel.getDouble("current_stock");
         TextField txtCurrentStock = new TextField(String.valueOf(sel.getDouble("current_stock") == null ? 0.0 : sel.getDouble("current_stock")));
         TextField txtMinStock = new TextField(String.valueOf(sel.getDouble("minimum_stock")));
 
@@ -683,15 +801,28 @@ public class InventoryController {
                 sel.set("minimum_stock", min);
                 sel.set("current_stock", current);
 
-                productService.save(sel);
-
-                return sel;
+                try {
+                    productService.save(sel, originalStock);
+                    return sel;
+                } catch (IllegalArgumentException | IllegalStateException ex) {
+                    Utils.showAlert("No se pudo actualizar el producto", ex.getMessage());
+                    loadProducts();
+                    return null;
+                } catch (RuntimeException ex) {
+                    Logs.error(getClass(), "Error actualizando producto", ex);
+                    Utils.showAlert("No se pudo actualizar el producto", "No fue posible guardar los cambios. Intente nuevamente; si el problema continúa, revise el registro de errores.");
+                    loadProducts();
+                    return null;
+                }
             }
             return null;
         });
 
         Optional<Product> result = dialog.showAndWait();
-        result.ifPresent(p -> loadProducts());
+        result.ifPresent(p -> {
+            Utils.showAlert("Éxito", "Producto actualizado correctamente");
+            loadProducts();
+        });
     }
 
     private void deleteSelected() {
@@ -759,25 +890,38 @@ public class InventoryController {
         grid.add(lblSoft, 0, 1);
         grid.add(lblHard, 0, 2);
 
-        // Verificar si tiene transacciones asociadas
-        try {
-            Long transactionCount = (Long) org.javalite.activejdbc.Base.firstCell(
-                "SELECT COUNT(*) FROM transaction_items WHERE product_id = ?",
-                product.getId()
-            );
-
-            if (transactionCount != null && transactionCount > 0) {
-                Label lblWarning = new Label("⚠️ Este producto tiene " + transactionCount +
-                    " transacción(es) asociada(s).\nNo se puede eliminar permanentemente.");
-                lblWarning.setStyle("-fx-font-size: 13px; -fx-text-fill: #ff9800; -fx-font-weight: bold;");
-                lblWarning.setWrapText(true);
-                grid.add(lblWarning, 0, 3);
-
-                // Deshabilitar eliminación permanente
-                dialog.getDialogPane().lookupButton(hardDeleteBtn).setDisable(true);
+        // Mantener la disponibilidad del botón coherente con las validaciones del servicio.
+        dialog.getDialogPane().lookupButton(softDeleteBtn).setDisable(product.isDeleted());
+        dialog.getDialogPane().lookupButton(hardDeleteBtn).setDisable(true);
+        if (product.isActive()) {
+            Label warning = new Label("Primero debe realizar la eliminación reversible del producto.");
+            warning.setStyle("-fx-font-size: 13px; -fx-text-fill: #d60000;");
+            warning.setWrapText(true);
+            grid.add(warning, 0, 3);
+        } else {
+            try {
+                Number transactionCount = com.joshuamc1.sicam.core.DatabaseManager.callInConnection(() ->
+                    (Number) org.javalite.activejdbc.Base.firstCell(
+                        "SELECT COUNT(*) FROM transaction_items WHERE product_id = ?", product.getId()));
+                if (transactionCount == null) {
+                    throw new IllegalStateException("No se obtuvo el número de transacciones asociadas");
+                }
+                if (transactionCount.longValue() == 0) {
+                    dialog.getDialogPane().lookupButton(hardDeleteBtn).setDisable(false);
+                } else {
+                    Label warning = new Label("Este producto tiene " + transactionCount.longValue() +
+                        " transacción(es) asociada(s).\nNo se puede eliminar permanentemente.");
+                    warning.setStyle("-fx-font-size: 13px; -fx-text-fill: #d60000;");
+                    warning.setWrapText(true);
+                    grid.add(warning, 0, 3);
+                }
+            } catch (Exception e) {
+                Logs.warn(getClass(), "No se pudo verificar transacciones asociadas: " + e.getMessage());
+                Label warning = new Label("No se pudo verificar el historial. Cierre y vuelva a intentar.");
+                warning.setStyle("-fx-font-size: 13px; -fx-text-fill: #d60000;");
+                warning.setWrapText(true);
+                grid.add(warning, 0, 3);
             }
-        } catch (Exception e) {
-            Logs.warn(getClass(), "No se pudo verificar transacciones asociadas: " + e.getMessage());
         }
 
         dialog.getDialogPane().setContent(grid);
@@ -891,7 +1035,10 @@ public class InventoryController {
         }
     }
 
+    private boolean importBusy;
+
     private void openImportDialog() {
+        if (importBusy) return;
         // Validación adicional por permisos
         if (!com.joshuamc1.sicam.core.PermissionHelper.canAccess("SISTEMA", "DESTRUCTIVE_OPERATIONS")) {
             Utils.showAlert("Permiso denegado", "Esta opción solo está disponible para el rol root.");
@@ -907,63 +1054,223 @@ public class InventoryController {
         File file = chooser.showOpenDialog(tblProducts.getScene().getWindow());
         if (file == null) return;
 
-        // Parseo básico y vista previa (placeholder)
-        List<Product> previewItems;
-        try {
-            previewItems = new com.joshuamc1.sicam.services.InventoryImportService().parseFileForPreview(file);
-        } catch (Exception ex) {
-            Logs.error(getClass(), "Error al parsear archivo: {}", ex.getMessage());
-            Utils.showAlert("Error", "No se pudo leer el archivo seleccionado: " + ex.getMessage());
-            return;
-        }
+        importBusy = true;
+        String importButtonText = btnImport.getText();
+        btnImport.setText("Leyendo archivo…");
+        btnImport.setDisable(true);
+        InventoryImportService service = new InventoryImportService();
+        Task<InventoryImportService.Plan> load = new Task<>() {
+            @Override protected InventoryImportService.Plan call() throws Exception {
+                return service.preview(service.readFile(file), InventoryImportService.Mode.UPSERT);
+            }
+        };
+        load.setOnSucceeded(e -> {
+            btnImport.setText(importButtonText);
+            importBusy = false;
+            btnImport.setDisable(false);
+            showImportPreview(service, load.getValue());
+        });
+        load.setOnFailed(e -> {
+            btnImport.setText(importButtonText);
+            importBusy = false;
+            btnImport.setDisable(false);
+            Utils.showAlert("Error de importación", load.getException().getMessage());
+        });
+        Thread reader = new Thread(load, "inventory-preview");
+        reader.setDaemon(true);
+        reader.start();
+    }
 
-        Dialog<ButtonType> dialog = new Dialog<>();
-        dialog.setTitle("Vista previa de importación");
-        dialog.getDialogPane().getButtonTypes().addAll(ButtonType.OK, ButtonType.CANCEL);
-        dialog.getDialogPane().setPrefWidth(650);
-        dialog.getDialogPane().setPrefHeight(400);
+    private void showImportPreview(InventoryImportService service, InventoryImportService.Plan initial) {
+        Dialog<Void> dialog = new Dialog<>();
+        dialog.initOwner(tblProducts.getScene().getWindow());
+        dialog.setTitle("Revisar importación de inventario");
         dialog.setResizable(true);
-
-        TableView<Product> previewTable = new TableView<>();
-        TableColumn<Product, String> pCode = new TableColumn<>("Código");
-        pCode.setCellValueFactory(c -> new SimpleStringProperty(c.getValue().getString("code")));
-        TableColumn<Product, String> pName = new TableColumn<>("Nombre");
-        pName.setCellValueFactory(c -> new SimpleStringProperty(c.getValue().getString("name")));
-        TableColumn<Product, String> pUnit = new TableColumn<>("Unidad");
-        pUnit.setCellValueFactory(c -> new SimpleStringProperty(c.getValue().getString("unit")));
-        TableColumn<Product, Double> pStock = new TableColumn<>("Stock");
-        pStock.setCellValueFactory(c -> new SimpleDoubleProperty(c.getValue().getDouble("current_stock") == null ? 0d : c.getValue().getDouble("current_stock")).asObject());
-        previewTable.getColumns().addAll(pCode, pName, pUnit, pStock);
-        previewTable.setItems(FXCollections.observableArrayList(previewItems));
-
-        dialog.getDialogPane().setContent(previewTable);
-        Optional<ButtonType> res = dialog.showAndWait();
-        if (res.isPresent() && res.get() == ButtonType.OK) {
-            // Ejecutar importación en background
-            Task<Void> task = new Task<>() {
-                @Override
-                protected Void call() {
-                    DatabaseConfig.openConnection();
-                    try {
-                        new com.joshuamc1.sicam.services.InventoryImportService().importItems(previewItems);
-                        return null;
-                    } finally {
-                        DatabaseConfig.closeConnection();
-                    }
+        dialog.getDialogPane().setPrefSize(1100, 650);
+        ButtonType importType = new ButtonType("Importar", ButtonBar.ButtonData.OK_DONE);
+        dialog.getDialogPane().getButtonTypes().addAll(importType, ButtonType.CANCEL);
+        Button run = (Button) dialog.getDialogPane().lookupButton(importType);
+        Button cancel = (Button) dialog.getDialogPane().lookupButton(ButtonType.CANCEL);
+        ComboBox<InventoryImportService.Mode> mode = new ComboBox<>(FXCollections.observableArrayList(InventoryImportService.Mode.values()));
+        mode.setValue(initial.mode);
+        Label summary = new Label(initial.summary());
+        Label notice = new Label("Los códigos vacíos generan productos nuevos. Las actualizaciones reemplazan el stock y quedan registradas en Auditoría. Una descripción vacía conserva la existente.");
+        notice.setWrapText(true);
+        ProgressBar progress = new ProgressBar(0);
+        progress.setMaxWidth(Double.MAX_VALUE);
+        TableView<InventoryImportService.PreviewRow> table = new TableView<>();
+        String[] titles = {"Fila", "Código", "Nombre", "Unidad", "Stock", "Mínimo", "Acción", "Cambios / errores"};
+        for (int i = 0; i < titles.length; i++) {
+            final int index = i;
+            TableColumn<InventoryImportService.PreviewRow, String> column = new TableColumn<>(titles[i]);
+            column.setCellValueFactory(c -> {
+                var row = c.getValue();
+                String value;
+                switch (index) {
+                    case 0: value = String.valueOf(row.input.row); break;
+                    case 1: value = row.input.code; break;
+                    case 2: value = row.input.name; break;
+                    case 3: value = row.input.unit; break;
+                    case 4: value = java.util.Objects.toString(row.input.stock, "Inválido"); break;
+                    case 5: value = java.util.Objects.toString(row.input.minimum, "Inválido"); break;
+                    case 6: value = row.action; break;
+                    default: value = row.detail;
+                }
+                return new SimpleStringProperty(value);
+            });
+            column.setPrefWidth(index == 7 ? 600 : index == 2 ? 180 : 95);
+            column.setCellFactory(col -> new TableCell<>() {
+                @Override protected void updateItem(String value, boolean empty) {
+                    super.updateItem(value, empty);
+                    setText(empty ? null : value);
+                    setTooltip(empty || value == null ? null : new Tooltip(value));
+                }
+            });
+            table.getColumns().add(column);
+        }
+        table.setRowFactory(t -> new TableRow<>() {
+            @Override protected void updateItem(InventoryImportService.PreviewRow row, boolean empty) {
+                super.updateItem(row, empty);
+                setStyle(!empty && row != null && row.hasError() ? "-fx-background-color: #ffebee;" : "");
+            }
+        });
+        TextArea detail = new TextArea("Seleccione una fila para ver sus cambios o errores completos.");
+        detail.setEditable(false);
+        detail.setWrapText(true);
+        detail.setPrefRowCount(3);
+        table.getSelectionModel().selectedItemProperty().addListener((obs, old, row) -> {
+            if (row != null) detail.setText("Fila " + row.input.row + ": " + row.detail);
+        });
+        InventoryImportService.Plan[] selected = {initial};
+        java.util.function.Consumer<InventoryImportService.Plan> display = plan -> {
+            selected[0] = plan;
+            table.setItems(FXCollections.observableArrayList(plan.rows));
+            summary.setText(plan.summary());
+            summary.setStyle(plan.hasErrors() ? "-fx-text-fill: #D32F2F;" : "");
+            run.setDisable(plan.hasErrors() || plan.count("Crear") + plan.count("Actualizar") == 0);
+        };
+        display.accept(initial);
+        mode.valueProperty().addListener((obs, old, value) -> {
+            mode.setDisable(true); run.setDisable(true); cancel.setDisable(true);
+            Task<InventoryImportService.Plan> refresh = new Task<>() {
+                @Override protected InventoryImportService.Plan call() {
+                    java.util.List<InventoryImportService.InputRow> inputs = new java.util.ArrayList<>();
+                    for (var row : initial.rows) inputs.add(row.input);
+                    return service.preview(inputs, value);
                 }
             };
-            task.setOnSucceeded(ev -> {
-                Utils.showAlert("Éxito", "Inventario importado correctamente.");
+            refresh.setOnSucceeded(e -> { display.accept(refresh.getValue()); mode.setDisable(false); cancel.setDisable(false); });
+            refresh.setOnFailed(e -> { detail.setText(refresh.getException().getMessage()); mode.setDisable(false); cancel.setDisable(false); });
+            Thread thread = new Thread(refresh, "inventory-preview-mode"); thread.setDaemon(true); thread.start();
+        });
+        javafx.scene.layout.VBox content = new javafx.scene.layout.VBox(10, new Label("Modo de importación"), mode, notice, summary, table, detail, progress);
+        javafx.scene.layout.VBox.setVgrow(table, javafx.scene.layout.Priority.ALWAYS);
+        dialog.getDialogPane().setContent(content);
+        dialog.setOnCloseRequest(e -> { if (importBusy || cancel.isDisabled()) e.consume(); });
+        run.addEventFilter(javafx.event.ActionEvent.ACTION, event -> {
+            event.consume();
+            if (importBusy || selected[0].hasErrors()) return;
+            importBusy = true; btnImport.setDisable(true); run.setDisable(true); mode.setDisable(true); cancel.setDisable(true);
+            Task<InventoryImportService.Plan> task = new Task<>() {
+                @Override protected InventoryImportService.Plan call() {
+                    return service.execute(selected[0], (done, total) -> updateProgress(done, total));
+                }
+            };
+            progress.progressProperty().bind(task.progressProperty());
+            task.setOnSucceeded(e -> {
+                importBusy = false; btnImport.setDisable(false); cancel.setDisable(false);
+                dialog.close();
                 loadProducts();
+                showImportResult(task.getValue());
             });
-            task.setOnFailed(ev -> {
-                Throwable t = task.getException();
-                Utils.showAlert("Error", "Falló la importación: " + (t == null ? "unknown" : t.getMessage()));
+            task.setOnFailed(e -> {
+                importBusy = false; btnImport.setDisable(false); cancel.setDisable(false); mode.setDisable(false);
+                progress.progressProperty().unbind(); progress.setProgress(0);
+                detail.setText(task.getException().getMessage() + "\nVuelva a seleccionar el modo para actualizar la vista previa.");
+                summary.setText("Importación cancelada; no se guardaron cambios.");
+                summary.setStyle("-fx-text-fill: #D32F2F;");
             });
-            Thread th = new Thread(task, "inventory-import");
-            th.setDaemon(true);
-            th.start();
+            Thread thread = new Thread(task, "inventory-import"); thread.setDaemon(true); thread.start();
+        });
+        dialog.showAndWait();
+    }
+
+    private void showImportResult(InventoryImportService.Plan plan) {
+        Dialog<ButtonType> result = new Dialog<>();
+        result.setTitle("Resultado de importación");
+        result.setResizable(true);
+        if (tblProducts.getScene() != null) result.initOwner(tblProducts.getScene().getWindow());
+        result.getDialogPane().getButtonTypes().add(new ButtonType("Cerrar", ButtonBar.ButtonData.OK_DONE));
+        Label title = new Label("Importación completada");
+        title.setStyle("-fx-font-size: 22px; -fx-font-weight: bold; -fx-text-fill: #237443;");
+        Label subtitle = new Label(plan.rows.size() + " filas procesadas · " + plan.mode);
+        subtitle.setStyle("-fx-font-size: 13px; -fx-text-fill: #555555;");
+        javafx.scene.layout.HBox counters = new javafx.scene.layout.HBox(12);
+        String[] actions = {"Crear", "Actualizar", "Omitir", "Error"};
+        String[] captions = {"Creados", "Actualizados", "Omitidos", "Errores"};
+        String[] colors = {"#237443", "#1565C0", "#8A5700", "#C62828"};
+        for (int i = 0; i < actions.length; i++) {
+            Label count = new Label(String.valueOf(plan.count(actions[i])));
+            count.setStyle("-fx-font-size: 26px; -fx-font-weight: bold; -fx-text-fill: " + colors[i] + ";");
+            Label caption = new Label(captions[i]);
+            caption.setStyle("-fx-font-size: 13px; -fx-text-fill: #444444;");
+            javafx.scene.layout.VBox card = new javafx.scene.layout.VBox(4, count, caption);
+            card.setStyle("-fx-background-color: #F5F7FA; -fx-background-radius: 8; -fx-padding: 12 18;");
+            card.setMaxWidth(Double.MAX_VALUE);
+            javafx.scene.layout.HBox.setHgrow(card, javafx.scene.layout.Priority.ALWAYS);
+            counters.getChildren().add(card);
         }
+        TableView<InventoryImportService.PreviewRow> table = new TableView<>();
+        table.setItems(FXCollections.observableArrayList(plan.rows));
+        table.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_FLEX_LAST_COLUMN);
+        table.setFixedCellSize(34);
+        table.setPrefHeight(32 + 34 * Math.max(1, Math.min(plan.rows.size(), 8)));
+        String[] headers = {"Fila", "Código", "Producto", "Resultado", "Detalle"};
+        double[] widths = {55, 135, 210, 115, 290};
+        for (int i = 0; i < headers.length; i++) {
+            final int index = i;
+            TableColumn<InventoryImportService.PreviewRow, String> column = new TableColumn<>(headers[i]);
+            column.setPrefWidth(widths[i]);
+            column.setCellValueFactory(c -> {
+                var row = c.getValue();
+                String value = switch (index) {
+                    case 0 -> String.valueOf(row.input.row);
+                    case 1 -> row.input.code.isBlank() ? "Generado automáticamente" : row.input.code;
+                    case 2 -> row.input.name;
+                    case 3 -> switch (row.action) {
+                        case "Crear" -> "Creado";
+                        case "Actualizar" -> "Actualizado";
+                        case "Omitir" -> "Omitido";
+                        default -> row.action;
+                    };
+                    default -> row.detail;
+                };
+                return new SimpleStringProperty(value);
+            });
+            column.setCellFactory(col -> new TableCell<>() {
+                @Override protected void updateItem(String value, boolean empty) {
+                    super.updateItem(value, empty);
+                    setText(empty ? null : value);
+                    setTooltip(empty || value == null ? null : new Tooltip(value));
+                }
+            });
+            table.getColumns().add(column);
+        }
+        TextArea detail = new TextArea();
+        detail.setEditable(false);
+        detail.setWrapText(true);
+        detail.setPrefRowCount(2);
+        detail.setAccessibleText("Detalle del resultado seleccionado");
+        table.getSelectionModel().selectedItemProperty().addListener((obs, old, row) ->
+            detail.setText(row == null ? "" : "Fila " + row.input.row + " · " + row.input.name + "\n" + row.detail));
+        if (!plan.rows.isEmpty()) table.getSelectionModel().selectFirst();
+        javafx.scene.layout.VBox content = new javafx.scene.layout.VBox(12, title, subtitle, counters,
+            new Label("Resultado por producto"), table, detail);
+        content.setPadding(new javafx.geometry.Insets(8));
+        javafx.scene.layout.VBox.setVgrow(table, javafx.scene.layout.Priority.ALWAYS);
+        result.getDialogPane().setContent(content);
+        result.getDialogPane().setPrefWidth(880);
+        result.showAndWait();
     }
 
     private void openExportDialog() {
@@ -994,6 +1301,8 @@ public class InventoryController {
     }
 
     private void exportInventoryCsv() {
+        com.joshuamc1.sicam.core.Authorization.requireAdminOrRoot();
+        com.joshuamc1.sicam.core.Authorization.require("INVENTARIO","READ");
         // Cargar datos activos
         List<Product> products = productService.findAll();
         if (products == null || products.isEmpty()) {
@@ -1040,6 +1349,8 @@ public class InventoryController {
     }
 
     private void exportInventoryExcel() {
+        com.joshuamc1.sicam.core.Authorization.requireAdminOrRoot();
+        com.joshuamc1.sicam.core.Authorization.require("INVENTARIO","READ");
         // Cargar datos activos
         List<Product> products = productService.findAll();
         if (products == null || products.isEmpty()) {

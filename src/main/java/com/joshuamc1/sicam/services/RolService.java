@@ -3,6 +3,10 @@ package com.joshuamc1.sicam.services;
 import com.joshuamc1.sicam.core.DatabaseManager;
 import com.joshuamc1.sicam.core.PermissionHelper;
 import com.joshuamc1.sicam.core.Session;
+import com.joshuamc1.sicam.core.Authorization;
+import com.joshuamc1.sicam.core.PermissionPolicy;
+import com.joshuamc1.sicam.models.Permiso;
+import org.javalite.activejdbc.Base;
 import com.joshuamc1.sicam.models.Rol;
 import com.joshuamc1.sicam.repositories.RolRepository;
 
@@ -13,6 +17,7 @@ public class RolService {
     private final AuditService auditService = new AuditService();
 
     public List<Rol> findAll() {
+        Authorization.require("ROLES", "READ");
         return DatabaseManager.callInConnection(repo::findAll);
     }
 
@@ -20,46 +25,54 @@ public class RolService {
         return DatabaseManager.callInConnection(() -> repo.findById(id));
     }
 
-    public Rol create(String nombre, String descripcion) {
-        if (!PermissionHelper.canAccess("ROLES", "CREATE")) {
-            throw new SecurityException("No tiene permiso para crear roles");
-        }
-
+    public Rol create(String nombre,String descripcion) {
+        return saveRole(null,nombre,descripcion,true);
+    }
+    public boolean update(Integer id,String nombre,String descripcion) {
+        Authorization.require("ROLES","UPDATE");
         return DatabaseManager.callInConnection(() -> {
-            Rol rol = repo.create(nombre, descripcion);
-            auditService.logAction(
-                Session.getCurrentUserId(),
-                "create_rol",
-                "roles",
-                rol.getInteger("id"),
-                String.format("rol_id=%d,nombre=%s", rol.getInteger("id"), nombre)
-            );
-            return rol;
+            Rol role=repo.findById(id);
+            return role != null && saveRole(id,nombre,descripcion,role.isActivo()) != null;
         });
     }
 
-    public boolean update(Integer id, String nombre, String descripcion) {
-        if (!PermissionHelper.canAccess("ROLES", "UPDATE")) {
-            throw new SecurityException("No tiene permiso para actualizar roles");
-        }
-
-        // No permitir editar rol ROOT
-        if (repo.isRoot(id)) {
-            throw new IllegalArgumentException("No se permite editar el rol ROOT");
-        }
-
+    public Rol saveRole(Integer id, String name, String description, boolean active) {
+        Authorization.require("ROLES", id == null ? "CREATE" : "UPDATE");
         return DatabaseManager.callInConnection(() -> {
-            boolean ok = repo.update(id, nombre, descripcion);
-            if (ok) {
-                auditService.logAction(
-                    Session.getCurrentUserId(),
-                    "update_rol",
-                    "roles",
-                    id,
-                    String.format("rol_id=%d,nombre=%s", id, nombre)
-                );
+            Rol role = id == null ? new Rol() : repo.findById(id);
+            if (role != null && role.isDeleted()) throw new SecurityException("Debe usar RESTORE para recuperar el rol");
+            if (role == null || role.isRoot() || "ROOT".equalsIgnoreCase(name)) throw new SecurityException("El rol ROOT está protegido");
+            if (id != null && java.util.Set.of("ADMIN","AUDITOR","SUPERVISOR","OPERADOR","CONSULTOR").contains(role.getString("nombre"))
+                    && !role.getString("nombre").equals(name)) throw new SecurityException("No se puede renombrar un rol del sistema");
+            role.set("nombre",name); role.set("descripcion",description);
+            role.set("activo",active ? 1 : 0); role.set("status",active ? Rol.STATUS_ACTIVE : Rol.STATUS_INACTIVE);
+            role.saveIt();
+            auditService.logAction(Session.getCurrentUserId(),id == null ? "create_rol" : "update_rol","roles",role.getInteger("id"),"nombre="+name+",active="+active);
+            return role;
+        });
+    }
+
+    public void updatePermissions(Integer roleId, List<Integer> permissionIds) {
+        Authorization.require("ROLES", "ASSIGN_PERMISSIONS");
+        DatabaseManager.runInConnection(() -> {
+            Rol role = repo.findById(roleId);
+            if (role == null || role.isRoot()) throw new SecurityException("Los permisos de ROOT son inmutables");
+            String actorRole = Authorization.currentRole();
+            java.util.Set<Integer> unique = new java.util.LinkedHashSet<>(permissionIds);
+            for (Integer id : unique) {
+                Permiso permission = Permiso.findById(id);
+                if (permission == null || !PermissionPolicy.canDelegate(actorRole, role.getString("nombre"),
+                        permission.getString("modulo"), permission.getString("accion"),
+                        Authorization.canAccess(permission.getString("modulo"),permission.getString("accion")))) {
+                    throw new SecurityException("No cuenta con permisos suficientes para delegar ese permiso");
+                }
             }
-            return ok;
+            String before = role.getPermisos().stream().map(p -> String.valueOf(p.getId())).collect(java.util.stream.Collectors.joining(","));
+            DatabaseManager.callInTransaction(() -> {
+                role.sincronizarPermisos(new java.util.ArrayList<>(unique));
+                auditService.logAction(Session.getCurrentUserId(),"assign_permissions","roles",roleId,"before="+before+",after="+unique);
+                return null;
+            });
         });
     }
 
@@ -73,6 +86,7 @@ public class RolService {
      * Soft delete explícito de un rol
      */
     public void softDelete(Rol rol) {
+        if (java.util.Set.of("ROOT","ADMIN","AUDITOR","SUPERVISOR","OPERADOR","CONSULTOR").contains(rol.getString("nombre"))) throw new SecurityException("No se puede eliminar un rol del sistema");
         Integer currentUserId = Session.getCurrentUserId();
         Integer id = rol.getInteger("id");
 
@@ -109,6 +123,7 @@ public class RolService {
      * Eliminación física permanente (solo ROOT)
      */
     public void hardDelete(Rol rol) {
+        if (java.util.Set.of("ROOT","ADMIN","AUDITOR","SUPERVISOR","OPERADOR","CONSULTOR").contains(rol.getString("nombre"))) throw new SecurityException("No se puede eliminar un rol del sistema");
         Integer currentUserId = Session.getCurrentUserId();
         Integer id = rol.getInteger("id");
 
@@ -186,6 +201,7 @@ public class RolService {
      * Marca rol como activo
      */
     public void markAsActive(Rol rol) {
+        if (rol.isDeleted()) throw new SecurityException("Los eliminados deben recuperarse mediante RESTORE");
         Integer currentUserId = Session.getCurrentUserId();
         Integer id = rol.getInteger("id");
 
@@ -203,6 +219,7 @@ public class RolService {
      * Lista roles incluyendo eliminados (requiere VIEW_DELETED)
      */
     public List<Rol> findAllIncludingDeleted() {
+        Authorization.require("ROLES","READ");
         if (!PermissionHelper.canAccess("SISTEMA", "VIEW_DELETED")) {
             throw new SecurityException("No tiene permiso para ver roles eliminados");
         }
@@ -213,6 +230,7 @@ public class RolService {
      * Lista solo eliminados
      */
     public List<Rol> findDeleted() {
+        Authorization.require("ROLES","READ");
         if (!PermissionHelper.canAccess("SISTEMA", "VIEW_DELETED")) {
             throw new SecurityException("No tiene permiso para ver roles eliminados");
         }

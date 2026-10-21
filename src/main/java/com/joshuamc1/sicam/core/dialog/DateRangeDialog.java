@@ -18,6 +18,8 @@ public class DateRangeDialog {
             this.to = to;
         }
 
+        public boolean isAllDates() { return from == null && to == null; }
+
         public LocalDate getFrom() {
             return from;
         }
@@ -27,15 +29,19 @@ public class DateRangeDialog {
         }
 
         public String getFromString() {
-            return from.format(DateTimeFormatter.ISO_DATE);
+            return from == null ? null : from.format(DateTimeFormatter.ISO_DATE);
         }
 
         public String getToString() {
-            return to.format(DateTimeFormatter.ISO_DATE);
+            return to == null ? null : to.format(DateTimeFormatter.ISO_DATE);
         }
     }
 
     public static DateRange showDialog(String title) {
+        return showDialog(title, false);
+    }
+
+    public static DateRange showDialog(String title, boolean allowAllDates) {
         Dialog<DateRange> dialog = new Dialog<>();
         dialog.setTitle(title);
         dialog.setHeaderText("Seleccione el rango de fechas para el reporte");
@@ -67,11 +73,22 @@ public class DateRangeDialog {
         grid.add(lblTo, 0, 1);
         grid.add(toDatePicker, 1, 1);
 
+        CheckBox allDates = new CheckBox("Todas las fechas");
+        if (allowAllDates) {
+            grid.add(allDates, 0, 2, 2, 1);
+            fromDatePicker.disableProperty().bind(allDates.selectedProperty());
+            toDatePicker.disableProperty().bind(allDates.selectedProperty());
+        }
+        javafx.scene.Node generate = dialog.getDialogPane().lookupButton(generateButtonType);
+        generate.disableProperty().bind(javafx.beans.binding.Bindings.createBooleanBinding(
+            () -> !allDates.isSelected() && (fromDatePicker.getValue() == null || toDatePicker.getValue() == null),
+            allDates.selectedProperty(), fromDatePicker.valueProperty(), toDatePicker.valueProperty()));
         dialog.getDialogPane().setContent(grid);
 
         // Convertir el resultado
         dialog.setResultConverter(dialogButton -> {
             if (dialogButton == generateButtonType) {
+                if (allowAllDates && allDates.isSelected()) return new DateRange(null, null);
                 LocalDate from = fromDatePicker.getValue();
                 LocalDate to = toDatePicker.getValue();
 

@@ -33,7 +33,6 @@ public class AuditService {
 
     // Acciones de transacciones
     public static final String ACTION_INVALIDATE = "invalidate";
-    public static final String ACTION_APPROVE = "approve";
     public static final String ACTION_RETURN = "return";
 
     // Acciones de estado
@@ -60,22 +59,32 @@ public class AuditService {
     }
 
     public List<Audit> getAll() {
+        com.joshuamc1.sicam.core.Authorization.require("AUDITORIA","READ");
         return DatabaseManager.callInConnection(repo::findAll);
     }
 
     public List<AuditDTO> getAllWithUser() {
+        com.joshuamc1.sicam.core.Authorization.require("AUDITORIA","READ");
         return DatabaseManager.callInConnection(repo::findAllWithUser);
     }
 
     public List<AuditDTO> getPageWithUser(int offset, int limit, String search) {
+        com.joshuamc1.sicam.core.Authorization.require("AUDITORIA","READ");
         return DatabaseManager.callInConnection(() -> repo.findPageWithUser(offset, limit, search));
     }
 
+    public List<AuditDTO> getPageWithUser(int offset, int limit, String search, com.joshuamc1.sicam.core.PageSort sort) {
+        com.joshuamc1.sicam.core.Authorization.require("AUDITORIA", "READ");
+        return DatabaseManager.callInConnection(() -> repo.findPageWithUser(offset, limit, search, sort));
+    }
+
     public int countWithFilter(String search) {
+        com.joshuamc1.sicam.core.Authorization.require("AUDITORIA","READ");
         return DatabaseManager.callInConnection(() -> repo.countWithFilter(search));
     }
 
     public List<AuditDTO> getAllWithUserByDateRange(LocalDate from, LocalDate to) {
+        com.joshuamc1.sicam.core.Authorization.require("AUDITORIA","READ");
         return DatabaseManager.callInConnection(() -> repo.findAllWithUserByDateRange(from, to));
     }
 }

@@ -8,6 +8,7 @@
 <?import javafx.scene.control.TableColumn?>
 <?import javafx.scene.control.TableView?>
 <?import javafx.scene.control.TextField?>
+<?import javafx.scene.control.ToggleButton?>
 <?import javafx.scene.layout.BorderPane?>
 <?import javafx.scene.layout.HBox?>
 <?import javafx.scene.layout.Region?>
@@ -30,6 +31,7 @@
                 <font>
                    <Font name="System Bold" size="14.0" />
                 </font></Button>
+                <ToggleButton fx:id="btnViewDeleted" onAction="#onViewDeleted" text="Ver eliminados" style="-fx-font-size: 14; -fx-font-weight: bold;" />
                 <Button fx:id="btnNew" onAction="#onNew" text="Nuevo">
                 <font>
                    <Font name="System Bold" size="14.0" />

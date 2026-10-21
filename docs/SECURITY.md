@@ -1,6 +1,6 @@
 # 🔐 Seguridad - SICAM - Sistema de Control de Activos Municipales
 
-**Última actualización:** 28 de Noviembre de 2025
+**Última actualización:** 20 de octubre de 2026
 
 ---
 
@@ -89,70 +89,13 @@ must_change_password = 1
 
 ## 🔐 Sistema de Autorización
 
-### Modelo RBAC (Role-Based Access Control)
+La política vigente se encuentra en [Roles y permisos implementados](AUTORIZACION.md). El catálogo contiene 45 permisos en 12 módulos, con seis roles predefinidos.
 
-#### Estructura de Permisos
-```
-Permiso = MÓDULO + ACCIÓN
+Authorization consulta las asignaciones vigentes y comprueba que usuario y rol estén activos. PermissionPolicy define las acciones implementadas y las operaciones que no pueden delegarse. PermissionHelper aplica las mismas reglas a la interfaz, manteniendo los botones ocultos o bloqueándolos con un aviso rojo según cada pantalla.
 
-Ejemplo:
-- INVENTARIO.CREATE
-- INVENTARIO.READ
-- INVENTARIO.UPDATE
-- INVENTARIO.DELETE
-```
+ADMIN puede gestionar Roles y Auditoría mediante sus permisos iniciales, pero no alterar ROOT ni conceder operaciones destructivas. Las funciones que utilizan isAdminOrRoot() siguen reservadas a esas identidades de rol.
 
-#### Roles del Sistema
-
-| Rol | Permisos | Módulos | Descripción |
-|-----|----------|---------|-------------|
-| **ROOT** | 98 (100%) | 14/14 | Superadministrador con acceso total |
-| **ADMIN** | 85 (~87%) | 13/14 | Administrador general (sin auditoría total) |
-| **SUPERVISOR** | 45 (~46%) | 9/14 | Supervisor operativo |
-| **OPERADOR** | 28 (~29%) | 8/14 | Operador básico (sin DELETE) |
-| **CONSULTOR** | 20 (~20%) | 8/14 | Consulta y reportes |
-| **AUDITOR** | 12 (~12%) | 3/14 | Auditoría y supervisión especializada |
-
-### Matriz de Permisos
-
-```
-┌─────────────┬──────┬───────┬────────────┬──────────┬───────────┬─────────┐
-│   Módulo    │ ROOT │ ADMIN │ SUPERVISOR │ OPERADOR │ CONSULTOR │ AUDITOR │
-├─────────────┼──────┼───────┼────────────┼──────────┼───────────┼─────────┤
-│ Dashboard   │  ✓   │   ✓   │     ✓     │    ✓     │     ✓     │    ✓   │
-│ Inventario  │ CRUDRS│ CRUDRS│    CRUD   │   CRU    │     R     │    -    │
-│ Ingresos    │CRUDRIS│CRUDRI │    CRUD   │   CRU    │     R     │    -    │
-│ Egresos     │CRUDRIS│CRUDRI │    CRUD   │   CRU    │     R     │    -    │
-│ Préstamos   │CRUDRIS│CRUDRI │    CRUD   │   CRU    │     R     │    -    │
-│ Personas    │ CRUDRS│ CRUDRS│    CRUD   │   CRU    │     R     │    -    │
-│ Usuarios    │ CRUDRS│ CRUDRS│     -     │    -     │     -     │    -    │
-│ Roles       │ CRUD  │ CRUD  │     -     │    -     │     -     │    -    │
-│ Auditoría   │  RE   │   R   │     -     │    -     │     -     │   RE    │
-│ Reportes    │  GE   │   GE  │     GE    │    GE    │    GE     │   GE    │
-│ Backup      │ CRD   │  CRD  │     -     │    -     │     -     │    -    │
-│ Perfil      │  U    │   U   │     U     │    U     │     U     │    U    │
-│ Configuración│ RU   │   R   │     -     │    -     │     -     │    -    │
-└─────────────┴──────┴───────┴────────────┴──────────┴───────────┴─────────┘
-
-Leyenda:
-C = CREATE    │ R = READ     │ U = UPDATE   │ D = DELETE      │ E = EXPORT
-G = GENERATE  │ S = RESTORE  │ I = INVALIDATE
-```
-
-### Acciones por Permiso
-
-| Acción | Código | Descripción | Aplicable a |
-|--------|--------|-------------|-------------|
-| **Crear** | CREATE | Crear nuevos registros | Todos los módulos CRUD |
-| **Leer** | READ | Ver y listar registros | Todos los módulos |
-| **Actualizar** | UPDATE | Editar registros existentes | Todos los módulos CRUD |
-| **Eliminar** | DELETE | Eliminar registros (soft delete) | Todos los módulos CRUD |
-| **Restaurar** | RESTORE | Restaurar registros eliminados | Usuarios, Personas, Productos |
-| **Invalidar** | INVALIDATE | Invalidar transacciones | Ingresos, Egresos, Préstamos |
-| **Exportar** | EXPORT | Exportar datos (CSV, PDF) | Reportes, Auditoría |
-| **Generar** | GENERATE | Generar reportes | Reportes |
-
----
+Las transacciones no admiten edición ni aprobación. La generación y exportación de reportes, la exportación de auditoría, el cambio de rol y la asignación de permisos se comprueban de forma independiente.
 
 ## 🔒 Validaciones de Seguridad
 
@@ -627,13 +570,13 @@ public void restore(Integer id) {
 
 #### Consultas Normales (Solo Activos)
 ```java
-// Sin permiso RESTORE - solo ve activos
+// Sin permiso VIEW_DELETED - solo ve registros no eliminados
 List<Product> products = Product.where("status = ?", 1);
 ```
 
 #### Consultas con Permiso RESTORE
 ```java
-// Con permiso RESTORE - ve todos (con badge de estado)
+// Con permiso VIEW_DELETED - ve todos; RESTORE solo habilita restaurar
 if (hasPermission("RESTORE")) {
     // Mostrar todos
     List<Product> products = Product.findAll();
@@ -749,7 +692,7 @@ List<Transaction> invalidTransactions =
 | **Puede restaurarse** | ✅ Sí (con permiso RESTORE) | ❌ No |
 | **Ajusta stock** | ❌ No | ✅ Sí |
 | **Motivo** | Error, duplicado | Corrección, error de registro |
-| **Visible para** | Solo con permiso RESTORE | Todos (con badge) |
+| **Visible para** | Solo con VIEW_DELETED | Según el estado y los permisos de consulta |
 | **Auditoría** | `soft_delete` / `restore` | `invalidate_transaction` |
 
 ---

@@ -74,9 +74,9 @@ public class User extends Model {
     /**
      * Verifica si el usuario tiene un permiso específico
      */
-    public boolean tienePermiso(String modulo, String accion) {
-        Rol rol = getRol();
-        return rol != null && rol.tienePermiso(modulo, accion);
+    public boolean tienePermiso(String modulo,String accion) {
+        return com.joshuamc1.sicam.core.DatabaseManager.callInConnection(() ->
+            new com.joshuamc1.sicam.repositories.AuthorizationRepository().hasPermission(getInteger("id"),modulo,accion));
     }
 
     /**

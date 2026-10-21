@@ -8,6 +8,7 @@ import com.joshuamc1.sicam.core.Utils;
 import com.joshuamc1.sicam.models.Person;
 import com.joshuamc1.sicam.models.Product;
 import com.joshuamc1.sicam.models.Transaction;
+import com.joshuamc1.sicam.utils.TransactionStatusBadge;
 import com.joshuamc1.sicam.models.TransactionItem;
 import com.joshuamc1.sicam.models.dto.TransactionItemDTO;
 import com.joshuamc1.sicam.services.PersonService;
@@ -48,7 +49,7 @@ public class LoansController {
     @FXML private Button btnViewInvalidated;
     @FXML private TextField txtSearch;
     @FXML
-    private TableColumn<Transaction, String> colId;
+    private TableColumn<Transaction, Integer> colId;
     @FXML
     private TableColumn<Transaction, String> colLoanCode;
     @FXML
@@ -56,19 +57,16 @@ public class LoansController {
     @FXML
     private TableColumn<Transaction, String> colRecordStatus; // Estado del registro (active, inactive)
     @FXML
-    private TableColumn<Transaction, String> colProduct;
-    @FXML
     private TableColumn<Transaction, String> colQuantity;
     @FXML
     private TableColumn<Transaction, String> colItems;
     @FXML
     private TableColumn<Transaction, String> colDate;
+    @FXML private TableColumn<Transaction, String> colExpectedReturn;
     @FXML
     private TableColumn<Transaction, String> colDni;
     @FXML
     private TableColumn<Transaction, String> colPerson;
-    @FXML
-    private TableColumn<Transaction, String> colNotes;
     @FXML
     private TableColumn<Transaction, Void> colActions;
 
@@ -80,6 +78,8 @@ public class LoansController {
     @FXML private javafx.scene.control.ChoiceBox<String> cmbFilter; // ComboBox de filtros
 
     // Estado de paginación
+    private com.joshuamc1.sicam.core.PagedTableSupport<Transaction> pageOrder;
+    private long loadRevision;
     private int currentPage = 1;
     private int pageSize = 25;
     private int totalItems = 0;
@@ -113,6 +113,8 @@ public class LoansController {
                 case "Vencidos" -> "overdue";
                 default -> "all";
             };
+            showingInvalidated = false;
+            btnViewInvalidated.setText("Ver Invalidados");
             currentPage = 1;
             loadPageFromRepo(currentPage);
         });
@@ -129,13 +131,17 @@ public class LoansController {
             });
         }
 
-        colId.setCellValueFactory(data -> new SimpleStringProperty(String.valueOf(data.getValue().getInteger("id"))));
+        colId.setCellValueFactory(data -> new javafx.beans.property.SimpleObjectProperty<>(data.getValue().getInteger("id")));
 
         // Columna de código de préstamo
         colLoanCode.setCellValueFactory(data -> {
             String loanCode = data.getValue().getString("loan_code");
             return new SimpleStringProperty(loanCode != null ? loanCode : "N/A");
         });
+
+        colExpectedReturn.setCellValueFactory(data -> new SimpleStringProperty(
+            data.getValue().getString("expected_return_date")));
+        colLoanStatus.setCellValueFactory(data -> new SimpleStringProperty(data.getValue().getString("loan_status")));
 
         // Columna de estado del préstamo (pending, returned, etc)
         colLoanStatus.setCellFactory(col -> new TableCell<>() {
@@ -154,7 +160,8 @@ public class LoansController {
             }
         });
 
-        // Columna de estado del registro (active/inactive)
+        // Columna de estado del registro (activo, inactivo o invalidado)
+        colRecordStatus.setCellValueFactory(data -> new SimpleStringProperty(data.getValue().getString("status")));
         colRecordStatus.setCellFactory(col -> new TableCell<>() {
             @Override
             protected void updateItem(String item, boolean empty) {
@@ -164,29 +171,11 @@ public class LoansController {
                     setText(null);
                 } else {
                     Transaction tx = getTableView().getItems().get(getIndex());
-                    boolean isActive = tx.isActive();
-                    Label badge = new Label(isActive ? "Activo" : "Inactivo");
-                    badge.setStyle(isActive
-                        ? "-fx-background-color: #4CAF50; -fx-text-fill: white; -fx-padding: 5 10; -fx-background-radius: 5;"
-                        : "-fx-background-color: #9E9E9E; -fx-text-fill: white; -fx-padding: 5 10; -fx-background-radius: 5;");
+                    Label badge = TransactionStatusBadge.create(tx);
                     setGraphic(badge);
                     setText(null);
                 }
             }
-        });
-
-        colProduct.setCellValueFactory(data -> {
-            // Obtener items de la transacción
-            List<TransactionItem> items = transactionService.getTransactionItems(data.getValue().getInteger("id"));
-            if (items.isEmpty()) {
-                return new SimpleStringProperty("Sin productos");
-            }
-            if (items.size() == 1) {
-                Product product = items.get(0).getProduct();
-                return new SimpleStringProperty(product != null ? product.getString("name") : "N/A");
-            }
-            // Si hay múltiples items, mostrar "Multi-Producto"
-            return new SimpleStringProperty("Multi-Producto (" + items.size() + ")");
         });
 
         colQuantity.setCellValueFactory(data -> {
@@ -216,18 +205,18 @@ public class LoansController {
             }
             return new SimpleStringProperty("-");
         });
-        colNotes.setCellValueFactory(data -> new SimpleStringProperty(data.getValue().getString("notes")));
 
-        // Columna de items
+        // Cantidad de productos incluidos, independiente de la cantidad de unidades.
         colItems.setCellValueFactory(data -> {
-            Integer totalItems = data.getValue().getInteger("total_items");
-            if (totalItems != null && totalItems > 1) {
-                return new SimpleStringProperty(totalItems + " items");
+            Integer count = data.getValue().getInteger("total_items");
+            if (count == null) {
+                count = transactionService.getTransactionItems(data.getValue().getInteger("id")).size();
             }
-            return new SimpleStringProperty("1 item");
+            return new SimpleStringProperty(count + (count == 1 ? " producto" : " productos"));
         });
 
         // Columna de acciones con botones según permisos y estado
+        colActions.setSortable(false);
         colActions.setCellFactory(col -> new TableCell<>() {
             private final HBox container = new HBox(5);
             private final Button btnViewItems = new Button("Ver");
@@ -300,16 +289,20 @@ public class LoansController {
         colLoanCode.setStyle("-fx-font-size: 17;");
         colLoanStatus.setStyle("-fx-font-size: 17;");
         colRecordStatus.setStyle("-fx-font-size: 17;");
-        colProduct.setStyle("-fx-font-size: 17;");
         colQuantity.setStyle("-fx-font-size: 17;");
         colItems.setStyle("-fx-font-size: 17;");
         colDate.setStyle("-fx-font-size: 17;");
         colDni.setStyle("-fx-font-size: 17;");
         colPerson.setStyle("-fx-font-size: 17;");
-        colNotes.setStyle("-fx-font-size: 17;");
         colActions.setStyle("-fx-font-size: 17;");
+        colExpectedReturn.setStyle("-fx-font-size: 17;");
 
         // Inicializar paginación (similar a InventoryController)
+        colQuantity.setComparator((left, right) -> Double.compare(
+            Double.parseDouble(left.replace(',', '.')), Double.parseDouble(right.replace(',', '.'))));
+        colItems.setComparator((left, right) -> Integer.compare(
+            Integer.parseInt(left.split(" ")[0]), Integer.parseInt(right.split(" ")[0])));
+        pageOrder = new com.joshuamc1.sicam.core.PagedTableSupport<>(tblTransactions, () -> loadPageFromRepo(1));
         choicePageSize.setItems(FXCollections.observableArrayList(10,25,50,100));
         choicePageSize.setValue(pageSize);
         choicePageSize.getSelectionModel().selectedItemProperty().addListener((obs, oldV, newV) -> {
@@ -340,25 +333,31 @@ public class LoansController {
         // Botones de filtro
         if (btnAllLoans != null) {
             btnAllLoans.setOnAction(e -> {
-                currentFilter = "all";
-                currentPage = 1;
-                loadPageFromRepo(currentPage);
+                if ("Todos".equals(cmbFilter.getValue())) {
+                    cmbFilter.fireEvent(new javafx.event.ActionEvent());
+                } else {
+                    cmbFilter.setValue("Todos");
+                }
             });
         }
 
         if (btnPendingLoans != null) {
             btnPendingLoans.setOnAction(e -> {
-                currentFilter = "pending";
-                currentPage = 1;
-                loadPageFromRepo(currentPage);
+                if ("Pendientes".equals(cmbFilter.getValue())) {
+                    cmbFilter.fireEvent(new javafx.event.ActionEvent());
+                } else {
+                    cmbFilter.setValue("Pendientes");
+                }
             });
         }
 
         if (btnOverdueLoans != null) {
             btnOverdueLoans.setOnAction(e -> {
-                currentFilter = "overdue";
-                currentPage = 1;
-                loadPageFromRepo(currentPage);
+                if ("Vencidos".equals(cmbFilter.getValue())) {
+                    cmbFilter.fireEvent(new javafx.event.ActionEvent());
+                } else {
+                    cmbFilter.setValue("Vencidos");
+                }
             });
         }
 
@@ -402,9 +401,14 @@ public class LoansController {
     }
 
     private void loadPageFromRepo(int page) {
+        final long revision = ++loadRevision;
+        final int requestedSize = pageSize;
+        final java.util.Comparator<Transaction> order = pageOrder.comparator(java.util.Comparator.comparing(
+            (Transaction row) -> row.getInteger("id")).reversed());
+        final boolean customOrder = pageOrder.hasOrder();
         final int p = page;
         final String searchText = txtSearch != null ? txtSearch.getText() : "";
-        final String filter = currentFilter;
+        final String filter = showingInvalidated ? "invalidated" : currentFilter;
 
         Task<Void> task = new Task<>() {
             @Override
@@ -414,7 +418,7 @@ public class LoansController {
 
                     long count;
                     List<Transaction> pageItems;
-                    int offset = (Math.max(1, p) - 1) * pageSize;
+                    int offset = (Math.max(1, p) - 1) * requestedSize;
 
                     // Aplicar filtros según el estado actual
                     List<Transaction> allTransactions;
@@ -426,8 +430,7 @@ public class LoansController {
                             allTransactions = transactionService.findOverdueLoans();
                             break;
                         case "invalidated":
-                            // No se usa aquí, tiene su propio dialog
-                            allTransactions = List.of();
+                            allTransactions = transactionService.findInvalidatedByType(Transaction.TYPE_LOAN);
                             break;
                         default: // "all"
                             allTransactions = transactionService.findByType(Transaction.TYPE_LOAN);
@@ -469,27 +472,30 @@ public class LoansController {
                             .collect(java.util.stream.Collectors.toList());
                     }
 
+                    allTransactions = new java.util.ArrayList<>(allTransactions);
+                    allTransactions.sort(order);
                     count = allTransactions.size();
+                    offset = (Math.min(Math.max(1, p), Math.max(1, (int) Math.ceil(allTransactions.size() / (double) requestedSize))) - 1) * requestedSize;
                     int fromIndex = Math.min(offset, allTransactions.size());
-                    int toIndex = Math.min(offset + pageSize, allTransactions.size());
+                    int toIndex = Math.min(offset + requestedSize, allTransactions.size());
                     pageItems = fromIndex < toIndex ? allTransactions.subList(fromIndex, toIndex) : List.of();
 
                     int total = (int) count;
-                    int pages = Math.max(1, (int) Math.ceil(total / (double) pageSize));
+                    int pages = Math.max(1, (int) Math.ceil(total / (double) requestedSize));
                     int pageToLoad = Math.min(Math.max(1, p), pages);
 
-                    final List<Transaction> finalPageItems = pageItems;
+                    final List<Transaction> finalPageItems = pageItems == null ? List.of() : new java.util.ArrayList<>(pageItems);
                     Platform.runLater(() -> {
+                        if (revision != loadRevision) return;
                         totalItems = total;
                         totalPages = pages;
                         currentPage = pageToLoad;
-                        currentPageItems.setAll(finalPageItems == null ? java.util.List.of() : finalPageItems);
-                        tblTransactions.setItems(currentPageItems);
+                        pageOrder.publish(currentPageItems, finalPageItems == null ? java.util.List.of() : finalPageItems);
                         updatePaginationControls();
                     });
                 } catch (Throwable t) {
                     Logs.error(getClass(), "Error cargando página de PRESTAMOS: {}", t.getMessage());
-                    Platform.runLater(() -> Utils.showAlert("Error", "No se pudo cargar PRESTAMOS: " + t.getMessage()));
+                    Platform.runLater(() -> { if (revision == loadRevision) Utils.showAlert("Error", "No se pudo cargar PRESTAMOS: " + t.getMessage()); });
                 } finally {
                     DatabaseConfig.closeConnection();
                 }
@@ -642,6 +648,7 @@ public class LoansController {
         btnNewPerson.setStyle("-fx-font-size: 17; -fx-font-weight: bold; -fx-background-color: #4CAF50; -fx-text-fill: white; -fx-cursor: hand;");
         btnNewPerson.setTooltip(new Tooltip("Crear nueva persona"));
         btnNewPerson.setOnAction(e -> {
+            if (!com.joshuamc1.sicam.core.PermissionHelper.validateAndShow("PERSONAS","CREATE")) return;
             Person newPerson = PersonDialogHelper.showCreatePersonDialog();
             if (newPerson != null) {
                 masterPeople.add(newPerson);
@@ -650,6 +657,8 @@ public class LoansController {
         });
 
         HBox personBox = new HBox(5, cmbPerson, btnNewPerson);
+        com.joshuamc1.sicam.core.PermissionHelper.configureVisibleAction(btnNewPerson,
+            com.joshuamc1.sicam.core.PermissionHelper.canAccess("PERSONAS","CREATE"));
         HBox.setHgrow(cmbPerson, Priority.ALWAYS);
 
         TextArea txtNotes = new TextArea();
@@ -853,7 +862,7 @@ public class LoansController {
         });
 
         TextField txtQuantity = new TextField();
-        txtQuantity.setPromptText("Cantidad");
+        txtQuantity.setPromptText("Cantidad (máximo 2 decimales)");
         txtQuantity.setStyle("-fx-font-size: 17;");
         TextFormatter<String> quantityFormatter = new TextFormatter<>(change -> {
             String newText = change.getControlNewText();
@@ -982,11 +991,7 @@ public class LoansController {
                     if (p == null || qText == null || qText.isBlank()) {
                         return null;
                     }
-                    double qty = Double.parseDouble(qText);
-                    if (qty <= 0) {
-                        Utils.showAlert("Validación", "La cantidad debe ser mayor que cero");
-                        return null;
-                    }
+                    double qty = com.joshuamc1.sicam.core.TransactionQuantity.parse(qText).doubleValue();
                     // Validar que la cantidad no exceda el stock disponible
                     Double currentStock = p.getDouble("current_stock");
                     if (currentStock == null) currentStock = 0.0;
@@ -1002,8 +1007,8 @@ public class LoansController {
                             txtNotes.getText(),
                             p.getString("name")
                     );
-                } catch (NumberFormatException ex) {
-                    Utils.showAlert("Error", "La cantidad debe ser un número válido");
+                } catch (IllegalArgumentException ex) {
+                    Utils.showAlert("Validación", ex.getMessage());
                 }
             }
             return null;
@@ -1014,7 +1019,7 @@ public class LoansController {
 
     private void showTransactionItemsDialog(@NotNull Transaction transaction) {
         Dialog<Void> d = new Dialog<>();
-        d.setTitle("Items de la Transacción #" + transaction.getId());
+        d.setTitle("Productos de la Transacción #" + transaction.getId());
         d.setHeaderText("Productos incluidos en esta transacción");
         d.getDialogPane().getButtonTypes().add(ButtonType.CLOSE);
 
@@ -1054,7 +1059,19 @@ public class LoansController {
         tblItems.getColumns().addAll(colCode, colProduct, colQuantity, colNotes);
         tblItems.setPrefHeight(400);
 
-        VBox vbox = new VBox(10, tblItems);
+        VBox vbox = new VBox(10);
+        String notes = transaction.getString("notes");
+        if (notes != null && !notes.isBlank()) {
+            Label notesLabel = new Label("Notas del préstamo");
+            notesLabel.setStyle("-fx-font-weight: bold;");
+            TextArea notesField = new TextArea(notes);
+            notesField.setEditable(false);
+            notesField.setWrapText(true);
+            notesField.setPrefRowCount(3);
+            vbox.getChildren().addAll(notesLabel, notesField);
+        }
+        vbox.getChildren().add(tblItems);
+        VBox.setVgrow(tblItems, Priority.ALWAYS);
         vbox.setPadding(new Insets(15));
         d.getDialogPane().setContent(vbox);
         d.getDialogPane().setPrefSize(750, 500);
@@ -1071,14 +1088,11 @@ public class LoansController {
         Label badge = new Label();
         badge.setStyle("-fx-font-size: 12px; -fx-font-weight: bold;");
 
-        String status = tx.getString("status");
         String loanStatus = tx.getString("loan_status");
 
-        // Verificar si está invalidado
-        if ("invalidated".equals(status)) {
-            badge.setText("INVALIDADO");
-            badge.setStyle(badge.getStyle() + "-fx-background-color: #fd7e14; -fx-text-fill: white; -fx-padding: 5 10; -fx-background-radius: 5;");
-            return badge;
+        // La invalidación o inactividad tiene prioridad sobre el estado del préstamo.
+        if (!tx.isActive()) {
+            return TransactionStatusBadge.create(tx);
         }
 
         // Estados de préstamo
@@ -1101,8 +1115,12 @@ public class LoansController {
                 badge.setText("VENCIDO");
                 badge.setStyle(badge.getStyle() + "-fx-background-color: #dc3545; -fx-text-fill: white; -fx-padding: 5 10; -fx-background-radius: 5;");
             } else {
-                badge.setText("PENDIENTE");
-                badge.setStyle(badge.getStyle() + "-fx-background-color: #007bff; -fx-text-fill: white; -fx-padding: 5 10; -fx-background-radius: 5;");
+                java.sql.Date due = tx.getDate("expected_return_date");
+                boolean dueToday = due != null && due.toLocalDate().equals(LocalDate.now());
+                badge.setText(dueToday ? "VENCE HOY" : "PENDIENTE");
+                badge.setStyle(badge.getStyle() + "-fx-background-color: "
+                    + (dueToday ? "#F9A825" : "#28a745") + "; -fx-text-fill: "
+                    + (dueToday ? "#212121" : "white") + "; -fx-padding: 5 10; -fx-background-radius: 5;");
             }
         } else {
             badge.setText("ACTIVO");

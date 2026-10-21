@@ -83,22 +83,18 @@ public class LoanCodeGenerator {
      * @return Número de secuencia (empezando en 1)
      */
     private static int getNextSequence(Person person, LocalDate date) {
-        Integer personId = person.getInteger("id");
-        String dateStr = date.format(DateTimeFormatter.ofPattern("yyyy-MM-dd"));
-
-        // Buscar préstamos de esta persona en esta fecha
-        // El código empieza con "P-{INICIALES}{YYYYMMDD}-"
-        String initials = getInitials(person);
-        String datePattern = date.format(DateTimeFormatter.ofPattern("yyyyMMdd"));
-        String codePrefix = String.format("P-%s%s-", initials, datePattern);
-
-        // Contar préstamos existentes con este prefijo
-        Long count = Transaction.count(
-            "type = 'loan' AND person_id = ? AND DATE(date) = ? AND loan_code LIKE ?",
-            personId, dateStr, codePrefix + "%"
-        );
-
-        return count == null ? 1 : count.intValue() + 1;
+        String codePrefix = "P-" + getInitials(person) + date.format(DateTimeFormatter.ofPattern("yyyyMMdd")) + "-";
+        String suffix;
+        try { suffix = org.javalite.activejdbc.Base.connection().getMetaData().getDatabaseProductName().equalsIgnoreCase("MySQL") ? " FOR UPDATE" : ""; }
+        catch (java.sql.SQLException ex) { throw new IllegalStateException("No se pudo generar el código del préstamo", ex); }
+        java.util.List<Transaction> loans = Transaction.findBySQL("SELECT * FROM transactions WHERE type = 'loan' AND loan_code LIKE ?" + suffix, codePrefix + "%");
+        int maximum = 0;
+        for (Transaction loan : loans) {
+            String existing = loan.getString("loan_code");
+            try { maximum = Math.max(maximum, Integer.parseInt(existing.substring(codePrefix.length()))); }
+            catch (NumberFormatException ex) { throw new IllegalStateException("Código de préstamo existente inválido: " + existing, ex); }
+        }
+        return Math.addExact(maximum, 1);
     }
 
     /**

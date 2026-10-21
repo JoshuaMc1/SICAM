@@ -1,10 +1,10 @@
 -- Insertar roles del sistema
 INSERT INTO roles (id, nombre, descripcion, activo) VALUES
 (1, 'ROOT', 'Acceso total al sistema sin restricciones', 1),
-(2, 'ADMIN', 'Acceso a todos los módulos excepto auditorías', 1),
+(2, 'ADMIN', 'Administración general, sin operaciones destructivas', 1),
 (3, 'AUDITOR', 'Acceso de solo lectura a auditorías y reportes', 1),
-(4, 'SUPERVISOR', 'Gestión de operaciones y aprobaciones', 1),
-(5, 'OPERADOR', 'Creación y edición de transacciones básicas', 1),
+(4, 'SUPERVISOR', 'Gestión y supervisión de operaciones', 1),
+(5, 'OPERADOR', 'Creación y consulta de transacciones básicas', 1),
 (6, 'CONSULTOR', 'Solo lectura en módulos permitidos', 1);
 
 -- Insertar permisos del sistema
@@ -21,21 +21,17 @@ INSERT INTO permisos (modulo, accion, descripcion) VALUES
 -- Módulo: Ingresos
 ('INGRESOS', 'CREATE', 'Crear ingresos de productos'),
 ('INGRESOS', 'READ', 'Ver ingresos de productos'),
-('INGRESOS', 'UPDATE', 'Editar ingresos de productos'),
 ('INGRESOS', 'DELETE', 'Eliminar ingresos de productos'),
 
 -- Módulo: Egresos
 ('EGRESOS', 'CREATE', 'Crear egresos de productos'),
 ('EGRESOS', 'READ', 'Ver egresos de productos'),
-('EGRESOS', 'UPDATE', 'Editar egresos de productos'),
 ('EGRESOS', 'DELETE', 'Eliminar egresos de productos'),
 
 -- Módulo: Préstamos
 ('PRESTAMOS', 'CREATE', 'Crear préstamos de productos'),
 ('PRESTAMOS', 'READ', 'Ver préstamos de productos'),
-('PRESTAMOS', 'UPDATE', 'Editar préstamos de productos'),
 ('PRESTAMOS', 'DELETE', 'Eliminar préstamos de productos'),
-('PRESTAMOS', 'APPROVE', 'Aprobar préstamos de productos'),
 
 -- Módulo: Personas
 ('PERSONAS', 'CREATE', 'Crear personas en el sistema'),
@@ -67,8 +63,6 @@ INSERT INTO permisos (modulo, accion, descripcion) VALUES
 ('REPORTES', 'EXPORT', 'Exportar reportes del sistema'),
 
 -- Módulo: Configuración
-('CONFIGURACION', 'READ', 'Ver configuración del sistema'),
-('CONFIGURACION', 'UPDATE', 'Modificar configuración del sistema'),
 
 -- Módulo: Sistema (Operaciones Destructivas y Visibilidad)
 ('SISTEMA', 'DESTRUCTIVE_OPERATIONS', 'Permite ejecutar eliminaciones físicas permanentes'),
@@ -117,7 +111,7 @@ WHERE (modulo = 'AUDITORIA' AND accion IN ('READ', 'EXPORT'))
 INSERT INTO rol_permisos (rol_id, permiso_id)
 SELECT 4, id FROM permisos
 WHERE (modulo IN ('DASHBOARD', 'INVENTARIO', 'INGRESOS', 'EGRESOS', 'PRESTAMOS', 'PERSONAS', 'REPORTES')
-       AND accion IN ('CREATE', 'READ', 'UPDATE', 'DELETE', 'APPROVE', 'GENERATE', 'EXPORT'))
+       AND accion IN ('CREATE', 'READ', 'UPDATE', 'DELETE', 'GENERATE', 'EXPORT'))
    OR (modulo IN ('INVENTARIO', 'INGRESOS', 'EGRESOS', 'PRESTAMOS', 'PERSONAS') AND accion = 'RESTORE')
    OR (modulo = 'SISTEMA' AND accion = 'VIEW_DELETED');
 

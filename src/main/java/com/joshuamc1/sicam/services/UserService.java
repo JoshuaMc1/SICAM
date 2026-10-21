@@ -2,6 +2,8 @@ package com.joshuamc1.sicam.services;
 
 import com.joshuamc1.sicam.core.DatabaseManager;
 import com.joshuamc1.sicam.core.Session;
+import com.joshuamc1.sicam.core.Authorization;
+import com.joshuamc1.sicam.models.Rol;
 import com.joshuamc1.sicam.models.User;
 import com.joshuamc1.sicam.repositories.UserRepository;
 
@@ -13,7 +15,7 @@ public class UserService {
 
     public User login(String username, String password) {
         return DatabaseManager.callInConnection(() -> {
-            User user = repo.findByUsername(username);
+            User user = repo.findByUsernameIncludingDeleted(username);
 
             // Usuario no encontrado
             if (user == null) {
@@ -52,15 +54,12 @@ public class UserService {
                     String.format("username=%s, status=%s, reason=%s", username, status, reason)
                 );
 
-                // Retornar null con un atributo especial para distinguir
-                User blockedUser = new User();
-                blockedUser.set("id", -1);
-                blockedUser.set("username", username);
-                blockedUser.set("blocked_reason", reason);
-                blockedUser.set("status", status);
-                return blockedUser;
+                return null;
             }
 
+            Rol loginRole = user.getRol();
+            if (loginRole == null || !loginRole.isActiveStatus() || !loginRole.isActivo()) return null;
+            if (user.getString("password") == null || user.getString("password").isBlank()) return null;
             // Validar contraseña
             if (!user.validatePassword(password)) {
                 auditService.logAction(
@@ -87,72 +86,73 @@ public class UserService {
     }
 
     public User createUser(String username, String password, String role) {
-        return DatabaseManager.callInConnection(() -> {
-            // password en texto plano: el modelo User.setPassword hará el hash
-            User user = repo.create(username, password, role);
-
-            auditService.logAction(
-                    Session.getCurrentUserId(),
-                    "create_user",
-                    "users",
-                    user.getInteger("id"),
-                    String.format("user_id=%d,username=%s,role=%s", user.getInteger("id"), username, role)
-            );
-
-            return user;
-        });
+        return createUserFull(username,username,password,role);
     }
-
     public User createUserFull(String name, String username, String password, String role) {
+        Authorization.require("USUARIOS","CREATE");
         return DatabaseManager.callInConnection(() -> {
-            // Seguridad: No permitir crear usuarios con rol root
-            if ("root".equals(role)) {
-                throw new IllegalArgumentException("No se permite crear usuarios con rol root por seguridad");
-            }
-
-            // password en texto plano: el modelo User.setPassword hará el hash
-            User user = repo.createFull(name, username, password, role);
-
-            auditService.logAction(
-                    Session.getCurrentUserId(),
-                    "create_user",
-                    "users",
-                    user.getInteger("id"),
-                    String.format("user_id=%d,name=%s,username=%s,role=%s", user.getInteger("id"), name, username, role)
-            );
-
+            Rol target = Rol.findFirst("UPPER(nombre)=?",role.toUpperCase(java.util.Locale.ROOT));
+            if (target == null) throw new IllegalArgumentException("Rol no encontrado");
+            return createUserWithRoleId(name,username,password,target.getInteger("id"));
+        });
+    }
+    public User createUserWithRoleId(String name,String username,String password,Integer roleId) {
+        Authorization.require("USUARIOS","CREATE");
+        return DatabaseManager.callInConnection(() -> {
+            validateAssignedRole(roleId);
+            if ("SYSTEM".equalsIgnoreCase(username)) throw new SecurityException("Usuario reservado");
+            User user = new User(); user.set("name",name); user.set("username",username);
+            user.setPassword(password); user.set("rol_id",roleId); user.set("status","active"); user.set("must_change_password",1);
+            user.saveIt();
+            auditService.logAction(Session.getCurrentUserId(),"create_user","users",user.getInteger("id"),"rol_id="+roleId);
             return user;
         });
     }
-
-    public boolean updateUser(Integer id, String name, String username, String role, String newPassword) {
+    public boolean updateUser(Integer id,String name,String username,String role,String newPassword) {
+        Authorization.require("USUARIOS","UPDATE");
         return DatabaseManager.callInConnection(() -> {
-            // Seguridad: No permitir editar usuarios root
-            if (repo.isRootUser(id)) {
-                throw new IllegalArgumentException("No se permite editar usuarios con rol root por seguridad");
-            }
-
-            // Seguridad: No permitir cambiar a rol root
-            if ("root".equals(role)) {
-                throw new IllegalArgumentException("No se permite asignar el rol root por seguridad");
-            }
-
-            boolean ok = repo.update(id, name, username, role, newPassword);
-            if (ok) {
-                auditService.logAction(
-                    Session.getCurrentUserId(),
-                    "update_user",
-                    "users",
-                    id,
-                    String.format("user_id=%d,username=%s,role=%s", id, username, role)
-                );
-            }
-            return ok;
+            Rol target = Rol.findFirst("UPPER(nombre)=?",role.toUpperCase(java.util.Locale.ROOT));
+            if (target == null) throw new IllegalArgumentException("Rol no encontrado");
+            return updateUserWithRoleId(id,name,username,target.getInteger("id"),newPassword);
         });
+    }
+    public boolean updateUserWithRoleId(Integer id,String name,String username,Integer roleId,String newPassword) {
+        Authorization.require("USUARIOS","UPDATE");
+        return DatabaseManager.callInConnection(() -> {
+            User user = repo.findById(id);
+            if (user == null) return false;
+            if (user.isRootRole() || "SYSTEM".equalsIgnoreCase(user.getString("username"))) throw new SecurityException("Usuario protegido");
+            if (!java.util.Objects.equals(user.getInteger("rol_id"),roleId)) {
+                Authorization.require("USUARIOS","CHANGE_ROLE");
+                if (id.equals(Session.getCurrentUserId())) throw new SecurityException("No puede cambiar su propio rol");
+                validateAssignedRole(roleId);
+            }
+            if (!user.getString("username").equals(username) && !Authorization.isRoot()) throw new SecurityException("Solo ROOT puede cambiar el nombre de usuario");
+            if ("SYSTEM".equalsIgnoreCase(username)) throw new SecurityException("Usuario reservado");
+            user.set("name",name); user.set("username",username); user.set("rol_id",roleId);
+            if(newPassword!=null && !newPassword.isBlank()) { user.setPassword(newPassword); user.set("must_change_password",1); }
+            user.saveIt();
+            auditService.logAction(Session.getCurrentUserId(),"update_user","users",id,"rol_id="+roleId);
+            return true;
+        });
+    }
+    private void validateAssignedRole(Integer roleId) {
+        Rol role = Rol.findById(roleId);
+        if (role == null || role.isRoot() || !role.isActiveStatus() || !role.isActivo()) throw new SecurityException("Rol no asignable");
+        if (!Authorization.isRoot()) {
+            for (com.joshuamc1.sicam.models.Permiso permission : role.getPermisos()) {
+                String module=permission.getString("modulo"), action=permission.getString("accion");
+                if (com.joshuamc1.sicam.core.PermissionPolicy.isSupported(module,action) && !Authorization.canAccess(module,action))
+                    throw new SecurityException("No puede asignar un rol con permisos superiores a los suyos");
+            }
+        }
     }
 
     public boolean resetPassword(Integer id, String newPassword, boolean mustChange) {
+        Authorization.require("USUARIOS","UPDATE");
         return DatabaseManager.callInConnection(() -> {
+            User target=repo.findById(id);
+            if (target != null && "SYSTEM".equalsIgnoreCase(target.getString("username"))) throw new SecurityException("El usuario SYSTEM está protegido");
             // Seguridad: No permitir resetear contraseña de usuarios root
             if (repo.isRootUser(id)) {
                 throw new IllegalArgumentException("No se permite resetear la contraseña de usuarios root por seguridad");
@@ -172,37 +172,28 @@ public class UserService {
         });
     }
 
+    @Deprecated
     public boolean deleteUser(Integer id) {
-        return DatabaseManager.callInConnection(() -> {
-            // Seguridad: No permitir eliminar usuarios root
-            if (repo.isRootUser(id)) {
-                throw new IllegalArgumentException("No se permite eliminar usuarios root por seguridad");
-            }
-
-            boolean ok = repo.delete(id);
-
-            if (ok) {
-                auditService.logAction(
-                        Session.getCurrentUserId(),
-                        "delete_user",
-                        "users",
-                        id,
-                        "user_id=" + id
-                );
-            }
-            return ok;
-        });
+        Authorization.require("USUARIOS","DELETE");
+        User user=findById(id);
+        if(user==null) return false;
+        softDelete(user);
+        return true;
     }
 
     public User findById(Integer id) {
+        Authorization.requireActiveSession();
+        if (!java.util.Objects.equals(id,Session.getCurrentUserId())) Authorization.require("USUARIOS","READ");
         return DatabaseManager.callInConnection(() -> repo.findById(id));
     }
 
     public long countUsers() {
+        Authorization.require("USUARIOS","READ");
         return DatabaseManager.callInConnection(repo::countUsers);
     }
 
     public List<User> listPaged(int offset, int limit, String search) {
+        Authorization.require("USUARIOS","READ");
         return DatabaseManager.callInConnection(() -> repo.listPaged(offset, limit, search));
     }
 
@@ -212,6 +203,8 @@ public class UserService {
      * Soft delete explícito de un usuario
      */
     public void softDelete(User user) {
+        if ("SYSTEM".equalsIgnoreCase(user.getString("username"))) throw new SecurityException("El usuario SYSTEM está protegido");
+        if (java.util.Objects.equals(user.getInteger("id"), Session.getCurrentUserId())) throw new SecurityException("No puede eliminar o desactivar su propia cuenta");
         Integer currentUserId = Session.getCurrentUserId();
         Integer id = user.getInteger("id");
 
@@ -239,6 +232,8 @@ public class UserService {
      * Eliminación física permanente (solo ROOT)
      */
     public void hardDelete(User user) {
+        if ("SYSTEM".equalsIgnoreCase(user.getString("username"))) throw new SecurityException("El usuario SYSTEM está protegido");
+        if (java.util.Objects.equals(user.getInteger("id"), Session.getCurrentUserId())) throw new SecurityException("No puede eliminar o desactivar su propia cuenta");
         Integer currentUserId = Session.getCurrentUserId();
         Integer id = user.getInteger("id");
 
@@ -267,6 +262,7 @@ public class UserService {
      * Restaura un usuario eliminado lógicamente
      */
     public void restore(User user) {
+        if ("SYSTEM".equalsIgnoreCase(user.getString("username"))) throw new SecurityException("El usuario SYSTEM está protegido");
         Integer currentUserId = Session.getCurrentUserId();
         Integer id = user.getInteger("id");
 
@@ -294,6 +290,8 @@ public class UserService {
      * Marca usuario como inactivo
      */
     public void markAsInactive(User user) {
+        if ("SYSTEM".equalsIgnoreCase(user.getString("username"))) throw new SecurityException("El usuario SYSTEM está protegido");
+        if (java.util.Objects.equals(user.getInteger("id"), Session.getCurrentUserId())) throw new SecurityException("No puede eliminar o desactivar su propia cuenta");
         Integer currentUserId = Session.getCurrentUserId();
         Integer id = user.getInteger("id");
 
@@ -315,6 +313,8 @@ public class UserService {
      * Marca usuario como activo
      */
     public void markAsActive(User user) {
+        if (user.isDeleted()) throw new SecurityException("Los eliminados deben recuperarse mediante RESTORE");
+        if ("SYSTEM".equalsIgnoreCase(user.getString("username"))) throw new SecurityException("El usuario SYSTEM está protegido");
         Integer currentUserId = Session.getCurrentUserId();
         Integer id = user.getInteger("id");
 
@@ -328,14 +328,24 @@ public class UserService {
         });
     }
 
-    /**
-     * Lista usuarios incluyendo eliminados (requiere VIEW_DELETED)
-     */
+    private List<User> visibleUsers(List<User> users) {
+        boolean root = Authorization.isRoot();
+        return users.stream().filter(user -> root || !user.isRootRole())
+            .collect(java.util.stream.Collectors.toList());
+    }
+
+    /** Lista usuarios activos e inactivos, excluyendo eliminados. */
+    public List<User> findAll() {
+        Authorization.require("USUARIOS", "READ");
+        return DatabaseManager.callInConnection(() -> visibleUsers(repo.findAll()));
+    }
+
+    /** Lista usuarios incluyendo eliminados (requiere VIEW_DELETED). */
     public List<User> findAllIncludingDeleted() {
         if (!com.joshuamc1.sicam.core.PermissionHelper.canAccess("SISTEMA", "VIEW_DELETED")) {
             throw new SecurityException("No tiene permiso para ver usuarios eliminados");
         }
-        return DatabaseManager.callInConnection(repo::findAllIncludingDeleted);
+        return DatabaseManager.callInConnection(() -> visibleUsers(repo.findAllIncludingDeleted()));
     }
 
     /**
@@ -345,7 +355,7 @@ public class UserService {
         if (!com.joshuamc1.sicam.core.PermissionHelper.canAccess("SISTEMA", "VIEW_DELETED")) {
             throw new SecurityException("No tiene permiso para ver usuarios eliminados");
         }
-        return DatabaseManager.callInConnection(repo::findDeleted);
+        return DatabaseManager.callInConnection(() -> visibleUsers(repo.findDeleted()));
     }
 
     public long countDeleted() {
@@ -368,8 +378,9 @@ public class UserService {
      * Verifica si existe un usuario con el username dado
      */
     public boolean existsByUsername(String username) {
+        Authorization.requireAny("USUARIOS","READ","CREATE","UPDATE");
         return DatabaseManager.callInConnection(() -> {
-            User user = repo.findByUsername(username);
+            User user = repo.findByUsernameIncludingDeleted(username);
             return user != null;
         });
     }
@@ -378,8 +389,9 @@ public class UserService {
      * Obtiene el ID de un usuario por su username
      */
     public Integer getIdByUsername(String username) {
+        Authorization.requireAny("USUARIOS","READ","CREATE","UPDATE");
         return DatabaseManager.callInConnection(() -> {
-            User user = repo.findByUsername(username);
+            User user = repo.findByUsernameIncludingDeleted(username);
             return user != null ? user.getInteger("id") : null;
         });
     }

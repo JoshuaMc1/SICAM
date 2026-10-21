@@ -21,6 +21,7 @@ import java.util.List;
 import java.util.Map;
 
 public class RolesController {
+    private final com.joshuamc1.sicam.services.RolService roleService = new com.joshuamc1.sicam.services.RolService();
     @FXML
     private TableView<Rol> tableRoles;
     @FXML
@@ -37,6 +38,8 @@ public class RolesController {
     private TableColumn<Rol, Void> colAcciones;
     @FXML
     private Button btnNuevoRol;
+    @FXML private Button btnViewDeleted;
+    @FXML private Label lblPermissionWarning;
 
     @FXML
     public void initialize() {
@@ -56,7 +59,13 @@ public class RolesController {
             com.joshuamc1.sicam.core.PermissionHelper.hideIfNoPermission(btnNuevoRol, "ROLES", "CREATE");
         }
 
-        Logs.info(getClass(), "Permisos de roles configurados - Solo ROOT tiene acceso");
+        boolean canViewDeleted = com.joshuamc1.sicam.core.PermissionHelper.canAccess("SISTEMA", "VIEW_DELETED");
+        btnViewDeleted.setDisable(!canViewDeleted);
+        boolean restricted = !canViewDeleted || java.util.stream.Stream.of("CREATE", "UPDATE", "DELETE", "ASSIGN_PERMISSIONS")
+            .anyMatch(action -> !com.joshuamc1.sicam.core.PermissionHelper.canAccess("ROLES", action));
+        lblPermissionWarning.setVisible(restricted);
+        lblPermissionWarning.setManaged(restricted);
+        Logs.info(getClass(), "Permisos de roles configurados");
     }
 
     private void configurarTabla() {
@@ -99,6 +108,10 @@ public class RolesController {
                 btnEditar.setStyle("-fx-background-color: #FF9800; -fx-text-fill: white; -fx-padding: 5 10; -fx-font-size: 14;");
                 btnEliminar.setStyle("-fx-background-color: #f44336; -fx-text-fill: white; -fx-padding: 5 10; -fx-font-size: 14;");
 
+                for (Button button : List.of(btnPermisos, btnEditar, btnEliminar)) {
+                    button.setMinWidth(javafx.scene.layout.Region.USE_PREF_SIZE);
+                }
+
                 btnPermisos.setOnAction(e -> {
                     Rol rol = getTableView().getItems().get(getIndex());
                     onGestionarPermisos(rol);
@@ -122,9 +135,17 @@ public class RolesController {
                     setGraphic(null);
                 } else {
                     Rol rol = getTableView().getItems().get(getIndex());
-                    // No permitir eliminar o editar el rol ROOT
-                    btnEliminar.setDisable(rol.isRoot());
-                    btnEditar.setDisable(rol.isRoot());
+                    boolean canAssign = com.joshuamc1.sicam.core.PermissionHelper.canAccess("ROLES", "ASSIGN_PERMISSIONS");
+                    boolean canEdit = com.joshuamc1.sicam.core.PermissionHelper.canAccess("ROLES", "UPDATE");
+                    boolean canDelete = com.joshuamc1.sicam.core.PermissionHelper.canAccess("ROLES", "DELETE");
+                    boolean protectedRole = java.util.Set.of("ROOT", "ADMIN", "AUDITOR", "SUPERVISOR", "OPERADOR", "CONSULTOR")
+                        .contains(rol.getString("nombre").toUpperCase(java.util.Locale.ROOT));
+                    btnPermisos.setDisable(!canAssign || rol.isRoot());
+                    btnEditar.setDisable(!canEdit || rol.isRoot());
+                    btnEliminar.setDisable(!canDelete || protectedRole);
+                    btnPermisos.setTooltip(rol.isRoot() ? new Tooltip("Los permisos de ROOT están protegidos") : null);
+                    btnEditar.setTooltip(rol.isRoot() ? new Tooltip("El rol ROOT está protegido") : null);
+                    btnEliminar.setTooltip(protectedRole ? new Tooltip("Los roles del sistema no se pueden eliminar") : null);
                     setGraphic(hbox);
                 }
             }
@@ -141,7 +162,7 @@ public class RolesController {
     private void cargarRoles() {
         new Thread(() -> {
             try {
-                List<Rol> roles = Rol.findAll().orderBy("id");
+                List<Rol> roles = roleService.findAll();
                 Platform.runLater(() -> tableRoles.getItems().setAll(roles));
             } catch (Exception e) {
                 Logs.error(getClass(), "Error cargando roles: {}", e.getMessage());
@@ -160,7 +181,7 @@ public class RolesController {
         Dialog<Rol> dialog = crearDialogoRol(null);
         dialog.showAndWait().ifPresent(rol -> {
             try {
-                rol.saveIt();
+                roleService.saveRole(null, rol.getString("nombre"), rol.getString("descripcion"), rol.isActivo());
                 cargarRoles();
                 Utils.showAlert("Éxito", "Rol creado correctamente");
             } catch (Exception e) {
@@ -198,10 +219,7 @@ public class RolesController {
         Dialog<Rol> dialog = crearDialogoRol(rol);
         dialog.showAndWait().ifPresent(rolEditado -> {
             try {
-                rol.set("nombre", rolEditado.getString("nombre"));
-                rol.set("descripcion", rolEditado.getString("descripcion"));
-                rol.set("activo", rolEditado.get("activo"));
-                rol.saveIt();
+                roleService.saveRole(rol.getInteger("id"), rolEditado.getString("nombre"), rolEditado.getString("descripcion"), rolEditado.isActivo());
                 cargarRoles();
                 Utils.showAlert("Éxito", "Rol actualizado correctamente");
             } catch (Exception e) {
@@ -217,14 +235,15 @@ public class RolesController {
 
     private void onGestionarPermisos(Rol rol) {
         // Validar permiso ROLES.UPDATE (gestionar permisos es una actualización)
-        if (!com.joshuamc1.sicam.core.PermissionHelper.validateAndShow("ROLES", "UPDATE")) {
+        if (!com.joshuamc1.sicam.core.PermissionHelper.validateAndShow("ROLES", "ASSIGN_PERMISSIONS")) {
             return;
         }
+        if (rol.isRoot()) { Utils.showAlert("Acceso Denegado", "Los permisos de ROOT están protegidos"); return; }
 
         Dialog<List<Integer>> dialog = crearDialogoPermisos(rol);
         dialog.showAndWait().ifPresent(permisosIds -> {
             try {
-                rol.sincronizarPermisos(permisosIds);
+                roleService.updatePermissions(rol.getInteger("id"), permisosIds);
                 Utils.showAlert("Éxito", "Permisos actualizados correctamente");
             } catch (Exception e) {
                 Logs.error(getClass(), "Error actualizando permisos: {}", e.getMessage());
@@ -365,7 +384,7 @@ public class RolesController {
                     Logs.error(getClass(), "Error validando nombre final: {}", e.getMessage());
                 }
 
-                Rol rol = base == null ? new Rol() : base;
+                Rol rol = new Rol();
                 rol.set("nombre", nombreFinal);
                 rol.set("descripcion", txtDescripcion.getText().trim());
                 rol.set("activo", chkActivo.isSelected() ? 1 : 0);
@@ -415,10 +434,16 @@ public class RolesController {
             permisoBox.setPadding(new Insets(0, 0, 0, 20));
 
             for (Permiso permiso : permisos) {
+                if (!com.joshuamc1.sicam.core.PermissionPolicy.isSupported(permiso.getString("modulo"), permiso.getString("accion"))) continue;
                 CheckBox cb = new CheckBox(permiso.getString("accion") + " - " +
                     permiso.getString("descripcion"));
                 cb.setUserData(permiso.getInteger("id"));
-                cb.setSelected(idsActuales.contains(permiso.getInteger("id")));
+                boolean canGrant = com.joshuamc1.sicam.core.PermissionPolicy.canDelegate(
+                    com.joshuamc1.sicam.core.Authorization.currentRole(), rol.getString("nombre"), permiso.getString("modulo"), permiso.getString("accion"),
+                    com.joshuamc1.sicam.core.PermissionHelper.canAccess(permiso.getString("modulo"),permiso.getString("accion")));
+                cb.setSelected(canGrant && idsActuales.contains(permiso.getInteger("id")));
+                cb.setDisable(!canGrant);
+                if (!canGrant) permisoBox.getChildren().add(com.joshuamc1.sicam.core.PermissionHelper.permissionWarning());
                 checkBoxes.add(cb);
                 permisoBox.getChildren().add(cb);
             }

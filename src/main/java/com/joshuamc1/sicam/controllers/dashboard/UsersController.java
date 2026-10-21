@@ -2,6 +2,7 @@ package com.joshuamc1.sicam.controllers.dashboard;
 
 import com.joshuamc1.sicam.config.DatabaseConfig;
 import com.joshuamc1.sicam.core.Logs;
+import com.joshuamc1.sicam.core.PermissionHelper;
 import com.joshuamc1.sicam.core.Utils;
 import com.joshuamc1.sicam.models.User;
 import com.joshuamc1.sicam.services.UserService;
@@ -23,7 +24,7 @@ public class UsersController {
     @FXML
     private TableView<User> tblUsers;
     @FXML
-    private TableColumn<User, String> colId;
+    private TableColumn<User, Integer> colId;
     @FXML
     private TableColumn<User, String> colStatus;
     @FXML
@@ -45,6 +46,9 @@ public class UsersController {
     @FXML private Button btnDelete;
     @FXML private Button btnResetPassword;
     @FXML private Button btnToggleStatus;
+    @FXML private ToggleButton btnViewDeleted;
+    private boolean showDeleted;
+    private long loadRevision;
 
     private final UserService userService = new UserService();
 
@@ -57,6 +61,7 @@ public class UsersController {
     @FXML private Label lblPage;
     @FXML private ChoiceBox<Integer> choicePageSize;
 
+    private com.joshuamc1.sicam.core.PagedTableSupport<User> pageOrder;
     private int currentPage = 1;
     private int pageSize = 50;
     private int totalItems = 0;
@@ -69,30 +74,12 @@ public class UsersController {
         // Configurar permisos primero
         canRestore = com.joshuamc1.sicam.core.PermissionHelper.canAccess("USUARIOS", "RESTORE");
 
-        colId.setCellValueFactory(data -> new SimpleStringProperty(String.valueOf(data.getValue().getInteger("id"))));
+        colId.setCellValueFactory(data -> new javafx.beans.property.SimpleObjectProperty<>(data.getValue().getInteger("id")));
 
-        // Columna de estado con badge visual
-        colStatus.setCellFactory(col -> new TableCell<>() {
-            @Override
-            protected void updateItem(String item, boolean empty) {
-                super.updateItem(item, empty);
-                if (empty) {
-                    setGraphic(null);
-                    setText(null);
-                } else {
-                    User user = getTableView().getItems().get(getIndex());
-                    boolean isActive = user.isActiveStatus();
-                    Label badge = new Label(isActive ? "Activo" : "Inactivo");
-                    badge.setStyle(isActive
-                        ? "-fx-background-color: #4CAF50; -fx-text-fill: white; -fx-padding: 5 10; -fx-background-radius: 5;"
-                        : "-fx-background-color: #9E9E9E; -fx-text-fill: white; -fx-padding: 5 10; -fx-background-radius: 5;");
-                    setGraphic(badge);
-                    setText(null);
-                }
-            }
-        });
+        configureStatusColumn();
 
         // Columna de acciones - Mostrar botón Restaurar solo si está eliminado y tiene permiso
+        colActions.setSortable(false);
         colActions.setCellFactory(col -> new TableCell<>() {
             private final Button btnRestore = new Button("Restaurar");
             {
@@ -134,6 +121,7 @@ public class UsersController {
         colCreated.setStyle("-fx-font-size: 17;");
         colActions.setStyle("-fx-font-size: 17;");
 
+        pageOrder = new com.joshuamc1.sicam.core.PagedTableSupport<>(tblUsers, () -> loadPageFromRepo(1));
         // Inicializar paginación
         choicePageSize.setItems(FXCollections.observableArrayList(10,25,50,100));
         choicePageSize.setValue(pageSize);
@@ -169,6 +157,32 @@ public class UsersController {
 
         loadPageFromRepo(1);
         configurePermissions();
+        updateDeletedView();
+    }
+
+    private void configureStatusColumn() {
+        // Columna de estado con badge visual
+        colStatus.setCellValueFactory(data -> new SimpleStringProperty(data.getValue().getString("status")));
+        colStatus.setCellFactory(col -> new TableCell<>() {
+            @Override
+            protected void updateItem(String item, boolean empty) {
+                super.updateItem(item, empty);
+                if (empty || getTableView() == null || getIndex() < 0 || getIndex() >= getTableView().getItems().size()) {
+                    setGraphic(null);
+                    setText(null);
+                } else {
+                    User user = getTableView().getItems().get(getIndex());
+                    boolean deleted = user.isDeleted();
+                    String text = deleted ? "Eliminado" : user.isActiveStatus() ? "Activo" : "Inactivo";
+                    String color = deleted ? "#D32F2F" : user.isActiveStatus() ? "#4CAF50" : "#9E9E9E";
+                    Label badge = new Label(text);
+                    badge.setStyle("-fx-background-color: " + color + "; -fx-text-fill: white; -fx-padding: 5 10; -fx-background-radius: 5;");
+                    setGraphic(badge);
+                    setText(null);
+                }
+            }
+        });
+
     }
 
     private void configurePermissions() {
@@ -189,6 +203,9 @@ public class UsersController {
             com.joshuamc1.sicam.core.PermissionHelper.hideIfNoPermission(btnResetPassword, "USUARIOS", "UPDATE");
         }
 
+        if (btnToggleStatus != null) {
+            com.joshuamc1.sicam.core.PermissionHelper.hideIfNoPermission(btnToggleStatus, "USUARIOS", "UPDATE");
+        }
         Logs.info(getClass(), "Permisos de usuarios configurados");
     }
 
@@ -222,14 +239,7 @@ public class UsersController {
                 // Usar contraseña por defecto: "contraseña" + año actual
                 String defaultPwd = "contraseña" + Year.now().getValue();
 
-                // Crear usuario directamente con el modelo
-                User newUser = new User();
-                newUser.set("name", u.getString("name"));
-                newUser.set("username", u.getString("username"));
-                newUser.setPassword(defaultPwd);
-                newUser.set("rol_id", u.get("rol_id"));
-                newUser.set("must_change_password", 1);
-                newUser.saveIt();
+                userService.createUserWithRoleId(u.getString("name"), u.getString("username"), defaultPwd, u.getInteger("rol_id"));
 
                 loadPageFromRepo(currentPage);
                 Utils.showAlert("Éxito", "Usuario creado. Contraseña por defecto: " + defaultPwd);
@@ -252,15 +262,21 @@ public class UsersController {
             Utils.showAlert("Aviso", "Seleccione un usuario");
             return;
         }
+        if (!PermissionHelper.isRoot() && selected.isRootRole()) {
+            Utils.showAlert("Acceso denegado", "No puede editar una cuenta ROOT");
+            return;
+        }
         Dialog<User> dialog = userDialog(selected);
         dialog.showAndWait().ifPresent(u -> {
             try {
-                // Actualizar directamente
-                selected.set("name", u.getString("name"));
-                selected.set("username", u.getString("username"));
-                selected.set("rol_id", u.get("rol_id"));
-                selected.saveIt();
-                loadPageFromRepo(currentPage);
+                boolean updated = userService.updateUserWithRoleId(selected.getInteger("id"), u.getString("name"), u.getString("username"), u.getInteger("rol_id"), null);
+                if (updated) {
+                    loadPageFromRepo(currentPage);
+                    Utils.showAlert("Éxito", "Usuario actualizado correctamente");
+                } else {
+                    Utils.showAlert("Aviso", "El usuario ya no está disponible. Actualice el listado e inténtelo nuevamente.");
+                    loadPageFromRepo(currentPage);
+                }
             } catch (Exception e) {
                 Logs.error(getClass(), "Error actualizando usuario: {}", e.getMessage());
                 Utils.showAlert("Error", "No se pudo actualizar el usuario: " + e.getMessage());
@@ -307,74 +323,86 @@ public class UsersController {
     }
 
     private void loadPageFromRepo(int page) {
+        final java.util.Comparator<User> order = pageOrder.comparator(java.util.Comparator.comparing(
+            (User row) -> row.getInteger("id")).reversed());
         final int p = page;
+        final String q = txtSearch == null ? "" : txtSearch.getText();
+        final boolean deletedView = showDeleted;
+        final int requestedSize = pageSize;
+        final long revision = ++loadRevision;
         new Thread(() -> {
             try {
-                DatabaseConfig.openConnection();
-                String q = txtSearch == null ? null : txtSearch.getText();
+                com.joshuamc1.sicam.config.DatabaseConfig.openConnection();
+                try {
+                    List<User> source = deletedView ? userService.findDeleted() : userService.findAll();
+                    List<User> all = filterUsers(source, deletedView, q);
+                    all.sort(order);
+                    int total = all.size();
+                    int pages = Math.max(1, (int) Math.ceil(total / (double) requestedSize));
+                    int pageToLoad = Math.min(Math.max(1, p), pages);
+                    int offset = (pageToLoad - 1) * requestedSize;
+                    List<User> pageItems = new java.util.ArrayList<>(all.subList(offset, Math.min(offset + requestedSize, total)));
 
-                // Si tiene permiso de restaurar, mostrar todos (incluidos eliminados)
-                // Si NO tiene permiso, solo mostrar activos
-                long count = userService.countUsers();
-                int total = (int) count;
-                int pages = Math.max(1, (int) Math.ceil(total / (double) pageSize));
-                int pageToLoad = Math.min(Math.max(1, p), pages);
-                int offset = (pageToLoad - 1) * pageSize;
-                List<User> pageItems = userService.listPaged(offset, pageSize, q);
+                    final int finalTotal = total;
+                    final int finalPages = pages;
+                    final int finalPageToLoad = pageToLoad;
+                    final List<User> finalPageItems = pageItems;
 
-                // Si tiene permiso de restaurar, incluir usuarios eliminados en la lista
-                if (canRestore && pageItems != null) {
-                    // Obtener también los eliminados
-                    List<User> deleted = userService.findDeleted();
-                    // Obtener todos los usuarios activos
-                    List<User> allActive = userService.listPaged(0, 9999, q);
-                    // Combinar
-                    List<User> all = new java.util.ArrayList<>(allActive);
-                    all.addAll(deleted);
-
-                    // Filtrar usuario SYSTEM
-                    all.removeIf(user -> {
-                        String username = user.getString("username");
-                        return username != null && username.equalsIgnoreCase("SYSTEM");
+                    Platform.runLater(() -> {
+                        if (revision != loadRevision) return;
+                        totalItems = finalTotal;
+                        totalPages = finalPages;
+                        currentPage = finalPageToLoad;
+                        pageOrder.publish(currentPageItems, finalPageItems == null ? java.util.List.of() : finalPageItems);
+                        updatePaginationControls();
                     });
-
-                    total = all.size();
-                    pages = Math.max(1, (int) Math.ceil(total / (double) pageSize));
-                    pageToLoad = Math.min(Math.max(1, p), pages);
-                    offset = (pageToLoad - 1) * pageSize;
-                    int fromIndex = Math.min(offset, all.size());
-                    int toIndex = Math.min(offset + pageSize, all.size());
-                    pageItems = fromIndex < toIndex ? all.subList(fromIndex, toIndex) : java.util.List.of();
-                } else {
-                    // Filtrar usuario SYSTEM (no debe aparecer en la lista)
-                    if (pageItems != null) {
-                        pageItems.removeIf(user -> {
-                            String username = user.getString("username");
-                            return username != null && username.equalsIgnoreCase("SYSTEM");
-                        });
-                    }
+                } finally {
+                    com.joshuamc1.sicam.config.DatabaseConfig.closeConnection();
                 }
-
-                final int finalTotal = total;
-                final int finalPages = pages;
-                final int finalPageToLoad = pageToLoad;
-                final List<User> finalPageItems = pageItems;
-
-                Platform.runLater(() -> {
-                    totalItems = finalTotal;
-                    totalPages = finalPages;
-                    currentPage = finalPageToLoad;
-                    currentPageItems.setAll(finalPageItems == null ? java.util.List.of() : finalPageItems);
-                    tblUsers.setItems(currentPageItems);
-                    updatePaginationControls();
-                });
             } catch (Throwable t) {
                 Logs.error(getClass(), "Error listando usuarios: {}", t.getMessage());
-                Platform.runLater(() -> Utils.showAlert("Error", "No se pudo cargar usuarios: " + t.getMessage()));
-            } finally {
-                DatabaseConfig.closeConnection();
+                Platform.runLater(() -> {
+                    if (revision == loadRevision) Utils.showAlert("Error", "No se pudo cargar usuarios.");
+                });
             }
         }).start();
+    }
+
+    static List<User> filterUsers(List<User> source, boolean deletedView, String query) {
+        String search = query == null ? "" : query.trim().toLowerCase(java.util.Locale.ROOT);
+        return source.stream()
+            .filter(user -> !"SYSTEM".equalsIgnoreCase(user.getString("username")))
+            .filter(user -> user.isDeleted() == deletedView)
+            .filter(user -> search.isEmpty() || java.util.stream.Stream.of("name", "username")
+                .map(user::getString).filter(java.util.Objects::nonNull)
+                .anyMatch(value -> value.toLowerCase(java.util.Locale.ROOT).contains(search)))
+            .sorted(java.util.Comparator.comparing((User user) -> user.getInteger("id")).reversed())
+            .collect(java.util.stream.Collectors.toList());
+    }
+
+    @FXML
+    private void onViewDeleted() {
+        if (!PermissionHelper.validateAndShow("SISTEMA", "VIEW_DELETED")) {
+            showDeleted = false;
+        } else {
+            showDeleted = btnViewDeleted.isSelected();
+        }
+        updateDeletedView();
+        loadPageFromRepo(1);
+    }
+
+    private void updateDeletedView() {
+        boolean allowed = PermissionHelper.canAccess("SISTEMA", "VIEW_DELETED");
+        if (!allowed) showDeleted = false;
+        btnViewDeleted.setVisible(allowed);
+        btnViewDeleted.setManaged(allowed);
+        btnViewDeleted.setSelected(showDeleted);
+        btnViewDeleted.setText(showDeleted ? "Ver usuarios" : "Ver eliminados");
+        btnEdit.setDisable(showDeleted);
+        btnResetPassword.setDisable(showDeleted);
+        btnToggleStatus.setDisable(showDeleted);
+        btnDelete.setDisable(showDeleted && !PermissionHelper.canAccess("SISTEMA", "DESTRUCTIVE_OPERATIONS"));
+        tblUsers.getSelectionModel().clearSelection();
     }
 
     private void updatePaginationControls() {
@@ -437,6 +465,9 @@ public class UsersController {
             }
         });
 
+        if (base != null && !com.joshuamc1.sicam.core.PermissionHelper.canAccess("USUARIOS","CHANGE_ROLE")) {
+            cmbRole.setDisable(true);
+        }
         txtName.setStyle(inputStyle);
         txtUsername.setStyle(inputStyle);
         cmbRole.setStyle(inputStyle);
@@ -451,7 +482,7 @@ public class UsersController {
 
         // Verificar si el usuario actual es root
         User currentUser = com.joshuamc1.sicam.core.Session.getCurrentUser();
-        boolean isRoot = currentUser != null && "root".equalsIgnoreCase(currentUser.getRolNombre());
+        boolean isRoot = com.joshuamc1.sicam.core.PermissionHelper.isRoot();
 
         if (base != null) {
             txtName.setText(base.getString("name"));
@@ -536,6 +567,8 @@ public class UsersController {
         gp.add(lblRole, 0, 4);
         gp.add(cmbRole, 1, 4);
         gp.add(helperRole, 1, 5);
+        if (base != null && !com.joshuamc1.sicam.core.PermissionHelper.canAccess("USUARIOS","CHANGE_ROLE"))
+            gp.add(com.joshuamc1.sicam.core.PermissionHelper.permissionWarning(),1,6);
 
         // Permitir que los controles ocupen el espacio horizontal disponible
         gp.setPrefWidth(440);
@@ -708,6 +741,7 @@ public class UsersController {
      * Restaura un usuario eliminado (desde columna de acciones)
      */
     private void restoreUser(User user) {
+        if (!com.joshuamc1.sicam.core.PermissionHelper.validateAndShow("USUARIOS", "RESTORE")) return;
         boolean ok = Utils.confirmAction("Confirmar Restauración",
             "¿Desea restaurar el usuario: " + user.getString("username") + "?");
         if (!ok) return;

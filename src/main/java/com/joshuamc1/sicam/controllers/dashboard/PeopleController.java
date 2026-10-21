@@ -22,8 +22,11 @@ public class PeopleController {
     @FXML @SuppressWarnings("unused") private Button btnEdit;
     @FXML @SuppressWarnings("unused") private Button btnDelete;
     @FXML private Button btnRefresh;
+    @FXML private ToggleButton btnViewDeleted;
+    private boolean showDeleted;
+    private long loadRevision;
     @FXML
-    private TableColumn<Person, String> colId;
+    private TableColumn<Person, Integer> colId;
     @FXML
     private TableColumn<Person, String> colStatus;
     @FXML
@@ -52,6 +55,7 @@ public class PeopleController {
     // Permisos
     private boolean canRestore = false;
 
+    private com.joshuamc1.sicam.core.PagedTableSupport<Person> pageOrder;
     private int currentPage = 1;
     private int pageSize = 50;
     private int totalItems = 0;
@@ -64,30 +68,12 @@ public class PeopleController {
         // Configurar permisos primero
         canRestore = com.joshuamc1.sicam.core.PermissionHelper.canAccess("PERSONAS", "RESTORE");
 
-        colId.setCellValueFactory(data -> new SimpleStringProperty(String.valueOf(data.getValue().getInteger("id"))));
+        colId.setCellValueFactory(data -> new javafx.beans.property.SimpleObjectProperty<>(data.getValue().getInteger("id")));
 
-        // Columna de estado con badge visual
-        colStatus.setCellFactory(col -> new TableCell<>() {
-            @Override
-            protected void updateItem(String item, boolean empty) {
-                super.updateItem(item, empty);
-                if (empty) {
-                    setGraphic(null);
-                    setText(null);
-                } else {
-                    Person person = getTableView().getItems().get(getIndex());
-                    boolean isActive = person.isActive();
-                    Label badge = new Label(isActive ? "Activo" : "Inactivo");
-                    badge.setStyle(isActive
-                        ? "-fx-background-color: #4CAF50; -fx-text-fill: white; -fx-padding: 5 10; -fx-background-radius: 5;"
-                        : "-fx-background-color: #9E9E9E; -fx-text-fill: white; -fx-padding: 5 10; -fx-background-radius: 5;");
-                    setGraphic(badge);
-                    setText(null);
-                }
-            }
-        });
+        configureStatusColumn();
 
         // Columna de acciones - Mostrar botón Restaurar solo si está eliminado y tiene permiso
+        colActions.setSortable(false);
         colActions.setCellFactory(col -> new TableCell<>() {
             private final Button btnRestore = new Button("Restaurar");
             {
@@ -139,7 +125,11 @@ public class PeopleController {
         Logs.info(getClass(), "Permisos de personas configurados");
 
         configurePermissions();
+        updateDeletedView();
+        btnRefresh.setOnAction(e -> loadPageFromRepo(1));
+        txtSearch.textProperty().addListener((obs, oldValue, newValue) -> loadPageFromRepo(1));
 
+        pageOrder = new com.joshuamc1.sicam.core.PagedTableSupport<>(tblPeople, () -> loadPageFromRepo(1));
         // Inicializar paginación
         choicePageSize.setItems(FXCollections.observableArrayList(10,25,50,100));
         choicePageSize.setValue(pageSize);
@@ -164,6 +154,31 @@ public class PeopleController {
         });
 
         loadPageFromRepo(1);
+    }
+
+    private void configureStatusColumn() {
+        // Columna de estado con badge visual
+        colStatus.setCellValueFactory(data -> new SimpleStringProperty(data.getValue().getString("status")));
+        colStatus.setCellFactory(col -> new TableCell<>() {
+            @Override
+            protected void updateItem(String item, boolean empty) {
+                super.updateItem(item, empty);
+                if (empty || getTableView() == null || getIndex() < 0 || getIndex() >= getTableView().getItems().size()) {
+                    setGraphic(null);
+                    setText(null);
+                } else {
+                    Person person = getTableView().getItems().get(getIndex());
+                    boolean deleted = person.isDeleted();
+                    String text = deleted ? "Eliminado" : person.isActive() ? "Activo" : "Inactivo";
+                    String color = deleted ? "#D32F2F" : person.isActive() ? "#4CAF50" : "#9E9E9E";
+                    Label badge = new Label(text);
+                    badge.setStyle("-fx-background-color: " + color + "; -fx-text-fill: white; -fx-padding: 5 10; -fx-background-radius: 5;");
+                    setGraphic(badge);
+                    setText(null);
+                }
+            }
+        });
+
     }
 
     private void configurePermissions() {
@@ -237,49 +252,25 @@ public class PeopleController {
     }
 
     private void loadPageFromRepo(int page) {
+        final java.util.Comparator<Person> order = pageOrder.comparator(java.util.Comparator.comparing(
+            (Person row) -> row.getInteger("id")).reversed());
         final int p = page;
+        final String q = txtSearch == null ? "" : txtSearch.getText();
+        final boolean deletedView = showDeleted;
+        final int requestedSize = pageSize;
+        final long revision = ++loadRevision;
         new Thread(() -> {
             try {
                 com.joshuamc1.sicam.config.DatabaseConfig.openConnection();
                 try {
-                    String q = txtSearch == null ? null : txtSearch.getText();
-
-                    // Si tiene permiso de restaurar, mostrar todos (incluidos eliminados)
-                    // Si NO tiene permiso, solo mostrar activos
-                    long count = personService.count();
-                    int total = (int) count;
-                    int pages = Math.max(1, (int) Math.ceil(total / (double) pageSize));
+                    List<Person> source = deletedView ? personService.findDeleted() : personService.findAll();
+                    List<Person> all = filterPeople(source, deletedView, q);
+                    all.sort(order);
+                    int total = all.size();
+                    int pages = Math.max(1, (int) Math.ceil(total / (double) requestedSize));
                     int pageToLoad = Math.min(Math.max(1, p), pages);
-                    int offset = (pageToLoad - 1) * pageSize;
-                    List<Person> pageItems = personService.listPaged(offset, pageSize, q);
-
-                    // Si tiene permiso de restaurar, incluir personas eliminadas en la lista
-                    if (canRestore && pageItems != null) {
-                        // Obtener también las eliminadas
-                        List<Person> deleted = personService.findDeleted();
-                        // Combinar y paginar manualmente
-                        List<Person> all = new java.util.ArrayList<>(personService.findAll());
-                        all.addAll(deleted);
-
-                        // Filtrar por búsqueda si hay query
-                        if (q != null && !q.isBlank()) {
-                            String search = q.toLowerCase();
-                            all = all.stream()
-                                .filter(person -> person.getString("dni").toLowerCase().contains(search) ||
-                                           person.getString("first_name").toLowerCase().contains(search) ||
-                                           person.getString("last_name").toLowerCase().contains(search) ||
-                                           (person.getString("internal_code") != null && person.getString("internal_code").toLowerCase().contains(search)))
-                                .collect(java.util.stream.Collectors.toList());
-                        }
-
-                        total = all.size();
-                        pages = Math.max(1, (int) Math.ceil(total / (double) pageSize));
-                        pageToLoad = Math.min(Math.max(1, p), pages);
-                        offset = (pageToLoad - 1) * pageSize;
-                        int fromIndex = Math.min(offset, all.size());
-                        int toIndex = Math.min(offset + pageSize, all.size());
-                        pageItems = fromIndex < toIndex ? all.subList(fromIndex, toIndex) : java.util.List.of();
-                    }
+                    int offset = (pageToLoad - 1) * requestedSize;
+                    List<Person> pageItems = new java.util.ArrayList<>(all.subList(offset, Math.min(offset + requestedSize, total)));
 
                     final int finalTotal = total;
                     final int finalPages = pages;
@@ -287,11 +278,11 @@ public class PeopleController {
                     final List<Person> finalPageItems = pageItems;
 
                     Platform.runLater(() -> {
+                        if (revision != loadRevision) return;
                         totalItems = finalTotal;
                         totalPages = finalPages;
                         currentPage = finalPageToLoad;
-                        currentPageItems.setAll(finalPageItems == null ? java.util.List.of() : finalPageItems);
-                        tblPeople.setItems(currentPageItems);
+                        pageOrder.publish(currentPageItems, finalPageItems == null ? java.util.List.of() : finalPageItems);
                         updatePaginationControls();
                     });
                 } finally {
@@ -299,9 +290,45 @@ public class PeopleController {
                 }
             } catch (Throwable t) {
                 Logs.error(getClass(), "Error listando personas: {}", t.getMessage());
-                Platform.runLater(() -> Utils.showAlert("Error", "No se pudo cargar personas: " + t.getMessage()));
+                Platform.runLater(() -> {
+                    if (revision == loadRevision) Utils.showAlert("Error", "No se pudo cargar personas.");
+                });
             }
         }).start();
+    }
+
+    static List<Person> filterPeople(List<Person> source, boolean deletedView, String query) {
+        String search = query == null ? "" : query.trim().toLowerCase(java.util.Locale.ROOT);
+        return source.stream()
+            .filter(person -> person.isDeleted() == deletedView)
+            .filter(person -> search.isEmpty() || java.util.stream.Stream.of("dni", "first_name", "last_name", "internal_code")
+                .map(person::getString).filter(java.util.Objects::nonNull)
+                .anyMatch(value -> value.toLowerCase(java.util.Locale.ROOT).contains(search)))
+            .sorted(java.util.Comparator.comparing((Person person) -> person.getInteger("id")).reversed())
+            .collect(java.util.stream.Collectors.toList());
+    }
+
+    @FXML
+    private void onViewDeleted() {
+        if (!PermissionHelper.validateAndShow("SISTEMA", "VIEW_DELETED")) {
+            showDeleted = false;
+        } else {
+            showDeleted = btnViewDeleted.isSelected();
+        }
+        updateDeletedView();
+        loadPageFromRepo(1);
+    }
+
+    private void updateDeletedView() {
+        boolean allowed = PermissionHelper.canAccess("SISTEMA", "VIEW_DELETED");
+        if (!allowed) showDeleted = false;
+        btnViewDeleted.setVisible(allowed);
+        btnViewDeleted.setManaged(allowed);
+        btnViewDeleted.setSelected(showDeleted);
+        btnViewDeleted.setText(showDeleted ? "Ver personas" : "Ver eliminados");
+        btnEdit.setDisable(showDeleted);
+        btnDelete.setDisable(showDeleted && !PermissionHelper.canAccess("SISTEMA", "DESTRUCTIVE_OPERATIONS"));
+        tblPeople.getSelectionModel().clearSelection();
     }
 
     private void updatePaginationControls() {
@@ -412,6 +439,7 @@ public class PeopleController {
      * Restaura una persona eliminada (desde columna de acciones)
      */
     private void restorePerson(Person person) {
+        if (!PermissionHelper.validateAndShow("PERSONAS", "RESTORE")) return;
         boolean ok = Utils.confirmAction("Confirmar Restauración",
             "¿Desea restaurar a: " + person.getFullName() + "?");
         if (!ok) return;

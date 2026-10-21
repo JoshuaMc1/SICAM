@@ -27,6 +27,8 @@
             </HBox>
 
             <Separator/>
+            <Label fx:id="lblPermissionWarning" text="No cuenta con permisos suficientes para algunas acciones."
+                   wrapText="true" visible="false" managed="false" style="-fx-text-fill: #D32F2F;"/>
 
             <!-- Tabla de Roles -->
             <VBox VBox.vgrow="ALWAYS" spacing="10">

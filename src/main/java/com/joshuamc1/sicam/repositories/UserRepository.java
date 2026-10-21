@@ -29,14 +29,14 @@ public class UserRepository {
      */
     public List<User> findAll() {
         return User.where("status != ?", User.STATUS_DELETED)
-            .orderBy("created_at DESC");
+            .orderBy("id DESC");
     }
 
     /**
      * Lista todos los usuarios incluyendo eliminados
      */
     public List<User> findAllIncludingDeleted() {
-        return User.findAll().orderBy("created_at DESC");
+        return User.findAll().orderBy("id DESC");
     }
 
     /**
@@ -44,7 +44,7 @@ public class UserRepository {
      */
     public List<User> findDeleted() {
         return User.where("status = ?", User.STATUS_DELETED)
-            .orderBy("deleted_at DESC");
+            .orderBy("id DESC");
     }
 
     /**
@@ -52,7 +52,7 @@ public class UserRepository {
      */
     public List<User> findActive() {
         return User.where("status = ?", User.STATUS_ACTIVE)
-            .orderBy("created_at DESC");
+            .orderBy("id DESC");
     }
 
     /**
@@ -60,14 +60,14 @@ public class UserRepository {
      */
     public List<User> findInactive() {
         return User.where("status = ?", User.STATUS_INACTIVE)
-            .orderBy("created_at DESC");
+            .orderBy("id DESC");
     }
 
     public User create(String username, String password, String role) {
         User user = new User();
         user.set("username", username);
         user.setPassword(password);
-        user.set("role", role);
+        user.set("rol_id", resolveRoleId(role));
         user.set("status", User.STATUS_ACTIVE); // Nuevo campo
         // Forzar cambio de contraseña al primer acceso
         user.set("must_change_password", 1);
@@ -81,7 +81,7 @@ public class UserRepository {
         user.set("name", name);
         user.set("username", username);
         user.setPassword(password);
-        user.set("role", role);
+        user.set("rol_id", resolveRoleId(role));
         user.set("status", User.STATUS_ACTIVE); // Nuevo campo
         // Forzar cambio de contraseña al primer acceso
         user.set("must_change_password", 1);
@@ -94,7 +94,7 @@ public class UserRepository {
         if (u == null) return false;
         u.set("name", name);
         u.set("username", username);
-        u.set("role", role);
+        u.set("rol_id", resolveRoleId(role));
         if (newPassword != null && !newPassword.isBlank()) {
             u.setPassword(newPassword);
             // Si se cambia la contraseña desde el propio usuario, quitar el flag
@@ -137,12 +137,12 @@ public class UserRepository {
             return User.where(
                 "(name LIKE ? OR username LIKE ?) AND rol_id != ? AND status != ?",
                 "%"+search+"%", "%"+search+"%", 1, User.STATUS_DELETED)
-                .orderBy("created_at DESC")
+                .orderBy("id DESC")
                 .offset(offset)
                 .limit(limit);
         } else {
             return User.where("rol_id != ? AND status != ?", 1, User.STATUS_DELETED)
-                .orderBy("created_at DESC")
+                .orderBy("id DESC")
                 .offset(offset)
                 .limit(limit);
         }
@@ -220,4 +220,10 @@ public class UserRepository {
         if (u == null) return false;
         return u.delete();
     }
+    private Integer resolveRoleId(String name) {
+        com.joshuamc1.sicam.models.Rol role=com.joshuamc1.sicam.models.Rol.findFirst("UPPER(nombre)=? AND status='active' AND activo=1",name.toUpperCase(java.util.Locale.ROOT));
+        if(role==null) throw new IllegalArgumentException("Rol no encontrado o inactivo");
+        return role.getInteger("id");
+    }
+
 }

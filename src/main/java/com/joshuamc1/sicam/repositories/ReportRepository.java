@@ -1,1441 +1,306 @@
 package com.joshuamc1.sicam.repositories;
 
-import com.joshuamc1.sicam.core.Logs;
+import com.joshuamc1.sicam.core.enums.StockLevel;
 import com.joshuamc1.sicam.models.Report;
 import org.javalite.activejdbc.Base;
-import org.jetbrains.annotations.NotNull;
 
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.time.LocalDate;
+import java.time.YearMonth;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 
+/** Consultas compartidas por CSV y PDF. Los históricos conservan los estados;
+ * los indicadores operativos solo cuentan transacciones y artículos activos. */
 public class ReportRepository {
-    // Reporte de usuarios con roles
-    public Report usersWithRoles() {
-        // FASE 9: Excluir usuarios eliminados
-        String sql = "SELECT u.id, u.name, u.username, r.nombre as role, u.created_at " +
-                     "FROM users u " +
-                     "LEFT JOIN roles r ON u.rol_id = r.id " +
-                     "WHERE u.status = 'active' " +
-                     "ORDER BY u.name";
-        Report res = new Report("Usuarios y roles");
-        res.addHeader("ID"); res.addHeader("Nombre"); res.addHeader("Username"); res.addHeader("Rol"); res.addHeader("Creado");
+    private final java.util.function.Supplier<java.sql.Connection> connection;
+    public ReportRepository() { connection = Base::connection; }
+    ReportRepository(java.sql.Connection connection) { this.connection = () -> connection; }
 
-        try (PreparedStatement ps = Base.connection().prepareStatement(sql);
-             ResultSet rs = ps.executeQuery()) {
-            while (rs.next()) {
-                List<String> row = new ArrayList<>();
-                row.add(String.valueOf(rs.getInt("id")));
-                row.add(rs.getString("name"));
-                row.add(rs.getString("username"));
-                row.add(rs.getString("role"));
-                row.add(rs.getString("created_at"));
-                res.addRow(row);
+    private static final String STATE = "CASE %s WHEN 'active' THEN 'Activo' WHEN 'invalidated' THEN 'Invalidado' "
+        + "WHEN 'cancelled' THEN 'Cancelado' WHEN 'deleted' THEN 'Eliminado' ELSE 'Inactivo' END";
+    private static final String VALID = "t.status = 'active' AND ti.status = 'active'";
+
+    private Report query(String title, String[] headers, String sql, Object... params) {
+        Report report = new Report(title);
+        for (String header : headers) report.addHeader(header);
+        try (PreparedStatement ps = connection.get().prepareStatement(sql)) {
+            for (int i = 0; i < params.length; i++) ps.setObject(i + 1, params[i]);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    List<String> row = new ArrayList<>();
+                    for (int i = 1; i <= headers.length; i++) {
+                        String value = rs.getString(i);
+                        row.add(value == null ? "" : value);
+                    }
+                    report.addRow(row);
+                }
             }
-        } catch (Exception e) {
-            Logs.error(this.getClass(), "Error ejecutando usersWithRoles: {}", e.getMessage());
-            throw new RuntimeException(e);
+        } catch (SQLException e) {
+            throw new IllegalStateException("No se pudo generar " + title, e);
         }
-        return res;
+        return report;
     }
 
+    public Report users(boolean includeRoot, boolean grouped, boolean includeDeleted) {
+        Report report = query(grouped ? "Usuarios agrupados por rol" : "Usuarios del sistema",
+            grouped ? new String[]{"ID", "Nombre", "Usuario", "Rol", "Estado", "Fecha de registro"}
+                : new String[]{"ID", "Nombre", "Usuario", "Estado", "Fecha de registro"},
+            "SELECT u.id, u.name, u.username, "
+            + (grouped ? "COALESCE(NULLIF(r.nombre, ''), 'Sin rol'), " : "")
+            + String.format(STATE, "u.status") + ", u.created_at "
+            + "FROM users u LEFT JOIN roles r ON r.id = u.rol_id WHERE UPPER(COALESCE(u.username, '')) != 'SYSTEM' "
+            + "AND UPPER(COALESCE(r.nombre, '')) != 'ROOT' "
+            + (includeDeleted ? "" : "AND u.status != 'deleted' ")
+            + "ORDER BY " + (grouped ? "r.nombre, " : "") + "u.id DESC");
+        if (grouped) report.setGroupByColumn("Rol");
+        return report;
+    }
+    public Report usersWithRoles() { return users(true, false, false); }
+    public Report usersExcludingRoot() { return users(false, false, false); }
+    public Report usersGroupedByRole() { return users(false, true, false); }
 
-    // Reporte de inventario total
-    public Report inventoryTotal() {
-        // FASE 9: Excluir productos eliminados
-        String sql = "SELECT id, name, unit, current_stock, minimum_stock, created_at " +
-                     "FROM products " +
-                     "WHERE status = 'active' " +
-                     "ORDER BY name";
-        Report res = new Report("Inventario total");
-        res.addHeader("ID"); res.addHeader("Nombre"); res.addHeader("Unidad"); res.addHeader("Stock actual"); res.addHeader("Stock mínimo"); res.addHeader("Creado");
-
-        try (PreparedStatement ps = Base.connection().prepareStatement(sql);
-             ResultSet rs = ps.executeQuery()) {
-            while (rs.next()) {
-                List<String> row = new ArrayList<>();
-                row.add(String.valueOf(rs.getInt("id")));
-                row.add(rs.getString("name"));
-                row.add(rs.getString("unit"));
-                row.add(String.valueOf(rs.getObject("current_stock")));
-                row.add(String.valueOf(rs.getObject("minimum_stock")));
-                row.add(rs.getString("created_at"));
-                res.addRow(row);
-            }
-        } catch (Exception e) {
-            Logs.error(this.getClass(), "Error ejecutando inventoryTotal: {}", e.getMessage());
-            throw new RuntimeException(e);
-        }
-        return res;
+    public Report inventory(String title, String from, String to, boolean includeDeleted, StockLevel level) {
+        return inventory(title, from, to, includeDeleted, level, false);
     }
 
-    // Reporte de inventario con stock bajo
-    public Report inventoryLowStock() {
-        // FASE 9: Excluir productos eliminados
-        String sql = "SELECT id, name, unit, current_stock, minimum_stock " +
-                     "FROM products " +
-                     "WHERE current_stock <= minimum_stock AND status = 'active' " +
-                     "ORDER BY current_stock ASC";
-        Report res = new Report("Inventario - Stock bajo");
-        res.addHeader("ID"); res.addHeader("Nombre"); res.addHeader("Unidad"); res.addHeader("Stock actual"); res.addHeader("Stock mínimo");
-
-        try (PreparedStatement ps = Base.connection().prepareStatement(sql);
-             ResultSet rs = ps.executeQuery()) {
-            while (rs.next()) {
-                List<String> row = new ArrayList<>();
-                row.add(String.valueOf(rs.getInt("id")));
-                row.add(rs.getString("name"));
-                row.add(rs.getString("unit"));
-                row.add(String.valueOf(rs.getObject("current_stock")));
-                row.add(String.valueOf(rs.getObject("minimum_stock")));
-                res.addRow(row);
-            }
-        } catch (Exception e) {
-            Logs.error(this.getClass(), "Error ejecutando inventoryLowStock: {}", e.getMessage());
-            throw new RuntimeException(e);
+    public Report inventory(String title, String from, String to, boolean includeDeleted, StockLevel level, boolean includeCode) {
+        List<Object> params = new ArrayList<>();
+        String where = includeDeleted ? "1=1" : "status != 'deleted'";
+        if (from != null) {
+            where += " AND DATE(created_at) BETWEEN DATE(?) AND DATE(?)";
+            params.add(from); params.add(to);
         }
-        return res;
+        List<String> headers = new ArrayList<>(List.of("ID", "Producto", "Descripción", "Unidad", "Stock actual", "Stock mínimo", "Estado", "Fecha de registro"));
+        if (includeCode) headers.add(1, "Código");
+        Report report = query(title + " — existencias actuales", headers.toArray(new String[0]),
+            "SELECT id, " + (includeCode ? "code, " : "") + "name, description, unit, current_stock, minimum_stock, " + String.format(STATE, "status")
+            + ", created_at FROM products WHERE " + where + " ORDER BY id DESC", params.toArray());
+        report.setLandscape(true);
+        report.addHeader("Nivel de stock");
+        report.getRows().removeIf(row -> {
+            StockLevel actual = StockLevel.classify(number(row.get(headers.indexOf("Stock actual"))), number(row.get(headers.indexOf("Stock mínimo"))));
+            row.add(actual.getLabel());
+            return level != null && actual != level;
+        });
+        return report;
+    }
+    private Double number(String value) { return value.isBlank() ? null : Double.valueOf(value); }
+    public Report inventoryComplete() { return inventory("Inventario completo", null, null, false, null, true); }
+    public Report inventoryTotal() { return inventoryComplete(); }
+    public Report inventoryLowStockReport() { return inventory("Inventario bajo el mínimo", null, null, false, StockLevel.BELOW_MINIMUM); }
+    public Report inventoryLowStock() { return inventoryLowStockReport(); }
+    public Report inventoryOutOfStock() { return inventory("Inventario sin stock", null, null, false, StockLevel.OUT_OF_STOCK); }
+    public Report inventoryProductsByDateRange(String from, String to) { return inventory("Productos registrados entre " + from + " y " + to, from, to, false, null); }
+    public Report inventoryByDateRange(String from, String to) { return inventoryProductsByDateRange(from, to); }
+
+    /** Una transacción por fila, con desglose de productos sin sumar unidades distintas. */
+    public Report transactionDetails(String title, String type, String from, String to,
+                                     Integer userId, Integer personId, String status) {
+        return transactionDetails(title, type, from, to, userId, personId, status, false);
     }
 
-    // Reporte de inventario por rango de fechas (created_at)
-    public Report inventoryByDateRange(String from, String to) {
-        String sql = "SELECT id, name, unit, current_stock, minimum_stock, created_at FROM products WHERE date(created_at) BETWEEN date(?) AND date(?) ORDER BY created_at";
-        Report res = new Report("Inventario por rango de fechas");
-        res.addHeader("ID"); res.addHeader("Nombre"); res.addHeader("Unidad"); res.addHeader("Stock actual"); res.addHeader("Stock mínimo"); res.addHeader("Creado");
-
-        PreparedStatement ps = null;
-        ResultSet rs = null;
-        try {
-            ps = Base.connection().prepareStatement(sql);
-            ps.setString(1, from);
-            ps.setString(2, to);
-            rs = ps.executeQuery();
-            while (rs.next()) {
-                List<String> row = new ArrayList<>();
-                row.add(String.valueOf(rs.getInt("id")));
-                row.add(rs.getString("name"));
-                row.add(rs.getString("unit"));
-                row.add(String.valueOf(rs.getObject("current_stock")));
-                row.add(String.valueOf(rs.getObject("minimum_stock")));
-                row.add(rs.getString("created_at"));
-                res.addRow(row);
-            }
-        } catch (Exception e) {
-            Logs.error(this.getClass(), "Error ejecutando inventoryByDateRange: {}", e.getMessage());
-            throw new RuntimeException(e);
-        } finally {
-            try { if (rs != null) rs.close(); } catch (Exception ignored) {}
-            try { if (ps != null) ps.close(); } catch (Exception ignored) {}
+    private Report transactionDetails(String title, String type, String from, String to,
+                                      Integer userId, Integer personId, String status, boolean registrationDate) {
+        List<Object> params = new ArrayList<>();
+        String where = "1=1";
+        if (type != null) { where += " AND t.type = ?"; params.add(type); }
+        if (from != null) { where += registrationDate ? " AND DATE(t.created_at) BETWEEN DATE(?) AND DATE(?)" : " AND t.date BETWEEN ? AND ?"; params.add(from); params.add(to); }
+        if (userId != null) { where += " AND t.user_id = ?"; params.add(userId); }
+        if (personId != null) { where += " AND t.person_id = ?"; params.add(personId); }
+        if (status != null) {
+            if (!List.of("active", "invalidated", "cancelled").contains(status)) throw new IllegalArgumentException("Estado no válido");
+            where += " AND t.status = ?"; params.add(status);
         }
-        return res;
-    }
-
-    // Reporte transacciones
-    public Report transactions(String from, String to) {
-        String sql = "SELECT t.id, " +
-                "       GROUP_CONCAT(DISTINCT p.name SEPARATOR ', ') as productos, " +
-                "       t.type, " +
-                "       (SELECT SUM(ti.quantity) FROM transaction_items ti WHERE ti.transaction_id = t.id) as cantidad_total, " +
-                "       t.total_items, " +
-                "       t.date, u.name as usuario, t.notes, t.created_at " +
-                "FROM transactions t " +
-                "LEFT JOIN transaction_items ti ON ti.transaction_id = t.id " +
-                "LEFT JOIN products p ON p.id = ti.product_id " +
-                "LEFT JOIN users u ON u.id = t.user_id " +
-                "WHERE date(t.created_at) BETWEEN date(?) AND date(?) " +
-                "GROUP BY t.id, t.type, t.date, u.name, t.notes, t.created_at " +
-                "ORDER BY t.created_at DESC";
-        Report res = new Report("Transacciones");
-        res.addHeader("ID");
-        res.addHeader("Productos");
-        res.addHeader("Tipo");
-        res.addHeader("Cantidad Total");
-        res.addHeader("Items");
-        res.addHeader("Fecha");
-        res.addHeader("Usuario");
-        res.addHeader("Notas");
-        res.addHeader("Creado");
-
-        PreparedStatement ps = null;
-        ResultSet rs = null;
-        try {
-            ps = Base.connection().prepareStatement(sql);
-            ps.setString(1, from);
-            ps.setString(2, to);
-            rs = ps.executeQuery();
-            while (rs.next()) {
-                List<String> row = new ArrayList<>();
-                row.add(String.valueOf(rs.getInt("id")));
-
-                String productos = rs.getString("productos");
-                int totalItems = rs.getInt("total_items");
-                // Siempre mostrar nombres de productos
-                row.add(productos != null ? productos : "N/A");
-
-                row.add(rs.getString("type"));
-                row.add(String.format("%.2f", rs.getDouble("cantidad_total")));
-                row.add(String.valueOf(totalItems));
-                row.add(rs.getString("date"));
-                row.add(rs.getString("usuario"));
-                row.add(rs.getString("notes"));
-                row.add(rs.getString("created_at"));
-                res.addRow(row);
+        Report detail = query(title + " — " + (status == null ? "Todos los estados" : status.equals("active") ? "Activas" : status.equals("invalidated") ? "Invalidadas" : "Canceladas"),
+            new String[]{"ID transacción", "Tipo", "Estado transacción", "Fecha de operación", "Fecha de registro",
+                "Producto", "Unidad", "Cantidad", "Estado producto en transacción", "Usuario", "Persona",
+                "Código préstamo", "Fecha de invalidación", "Invalidado por", "Motivo de invalidación", "Notas"},
+            "SELECT t.id, CASE t.type WHEN 'in' THEN 'Ingreso' WHEN 'out' THEN 'Egreso' ELSE 'Préstamo' END, "
+            + String.format(STATE, "t.status") + ", t.date, t.created_at, p.name, p.unit, ti.quantity, "
+            + String.format(STATE, "ti.status") + ", u.username, "
+            + "TRIM(CONCAT(COALESCE(pe.first_name,''), ' ', COALESCE(pe.last_name,''))), t.loan_code, "
+            + "t.invalidated_at, iu.username, t.invalidation_reason, t.notes FROM transactions t "
+            + "LEFT JOIN transaction_items ti ON ti.transaction_id = t.id "
+            + "LEFT JOIN products p ON p.id = ti.product_id LEFT JOIN users u ON u.id = t.user_id "
+            + "LEFT JOIN users iu ON iu.id = t.invalidated_by LEFT JOIN people pe ON pe.id = t.person_id "
+            + "WHERE " + where + " ORDER BY t.id DESC, ti.id", params.toArray());
+        Report grouped = new Report(detail.getTitle());
+        for (String header : new String[]{"ID", "Productos", "Tipo", "Estado", "Fecha de operación",
+                "Usuario", "Persona", "Fecha de registro", "Invalidación", "Notas"}) grouped.addHeader(header);
+        java.util.Map<String, List<String>> transactions = new java.util.LinkedHashMap<>();
+        for (List<String> row : detail.getRows()) {
+            List<String> summary = transactions.get(row.get(0));
+            if (summary == null) {
+                String audit = row.get(12).isBlank() ? "" : "Fecha: " + row.get(12);
+                if (!row.get(13).isBlank()) audit += "\nPor: " + row.get(13);
+                if (!row.get(14).isBlank()) audit += "\nMotivo: " + row.get(14);
+                summary = new ArrayList<>(List.of(row.get(0) + (row.get(11).isBlank() ? "" : "\n" + row.get(11)),
+                    "", row.get(1), row.get(2), row.get(3), row.get(9), row.get(10), row.get(4), audit, row.get(15)));
+                transactions.put(row.get(0), summary);
             }
-        } catch (Exception e) {
-            Logs.error(this.getClass(), "Error ejecutando transactions: {}", e.getMessage());
-            throw new RuntimeException(e);
-        } finally {
-            try { if (rs != null) rs.close(); } catch (Exception ignored) {}
-            try { if (ps != null) ps.close(); } catch (Exception ignored) {}
-        }
-        return res;
-    }
-
-    // Reporte transacciones por tipo
-    public Report transactionsByType(String type, String from, String to) {
-        String sql = "SELECT t.id, " +
-                "       GROUP_CONCAT(DISTINCT p.name SEPARATOR ', ') as productos, " +
-                "       t.type, " +
-                "       (SELECT SUM(ti.quantity) FROM transaction_items ti WHERE ti.transaction_id = t.id) as cantidad_total, " +
-                "       t.total_items, " +
-                "       t.date, u.name as usuario, t.notes, t.created_at " +
-                "FROM transactions t " +
-                "LEFT JOIN transaction_items ti ON ti.transaction_id = t.id " +
-                "LEFT JOIN products p ON p.id = ti.product_id " +
-                "LEFT JOIN users u ON u.id = t.user_id " +
-                "WHERE t.type = ? AND date(t.created_at) BETWEEN date(?) AND date(?) " +
-                "GROUP BY t.id, t.type, t.date, u.name, t.notes, t.created_at " +
-                "ORDER BY t.created_at DESC";
-        Report res = new Report("Transacciones por tipo: " + type);
-        res.addHeader("ID");
-        res.addHeader("Productos");
-        res.addHeader("Tipo");
-        res.addHeader("Cantidad Total");
-        res.addHeader("Items");
-        res.addHeader("Fecha");
-        res.addHeader("Usuario");
-        res.addHeader("Notas");
-        res.addHeader("Creado");
-
-        PreparedStatement ps = null;
-        ResultSet rs = null;
-        try {
-            ps = Base.connection().prepareStatement(sql);
-            ps.setString(1, type);
-            ps.setString(2, from);
-            ps.setString(3, to);
-            rs = ps.executeQuery();
-            while (rs.next()) {
-                List<String> row = new ArrayList<>();
-                row.add(String.valueOf(rs.getInt("id")));
-
-                String productos = rs.getString("productos");
-                int totalItems = rs.getInt("total_items");
-                // Siempre mostrar nombres de productos
-                row.add(productos != null ? productos : "N/A");
-
-                row.add(rs.getString("type"));
-                row.add(String.format("%.2f", rs.getDouble("cantidad_total")));
-                row.add(String.valueOf(totalItems));
-                row.add(rs.getString("date"));
-                row.add(rs.getString("usuario"));
-                row.add(rs.getString("notes"));
-                row.add(rs.getString("created_at"));
-                res.addRow(row);
+            if (!row.get(5).isBlank()) {
+                String product = row.get(5) + ": " + row.get(7) + " " + row.get(6);
+                if (!"Activo".equals(row.get(8))) product += " (" + row.get(8) + ")";
+                summary.set(1, summary.get(1) + (summary.get(1).isBlank() ? "" : "\n") + product);
             }
-        } catch (Exception e) {
-            Logs.error(this.getClass(), "Error ejecutando transactionsByType: {}", e.getMessage());
-            throw new RuntimeException(e);
-        } finally {
-            try { if (rs != null) rs.close(); } catch (Exception ignored) {}
-            try { if (ps != null) ps.close(); } catch (Exception ignored) {}
         }
-        return res;
+        transactions.values().forEach(grouped::addRow);
+        grouped.setLandscape(true);
+        return grouped;
     }
+    public Report transactionsAll() { return transactionDetails("Historial de transacciones", null, null, null, null, null, null); }
+    public Report inventoryMovements() { return inventoryMovementsByDateRange(LocalDate.now().minusDays(29).toString(), LocalDate.now().toString()); }
+    public Report inventoryMovementsByDateRange(String from, String to) { return transactionDetails("Movimientos " + from + " a " + to, null, from, to, null, null, null); }
+    public Report transactions(String from, String to) { return inventoryMovementsByDateRange(from, to); }
+    public Report transactionsByTypeReport(String type) { return transactionDetails("Transacciones por tipo", type, null, null, null, null, null); }
+    public Report transactionsByTypeAndDateRange(String type, String from, String to) { return transactionDetails("Transacciones " + from + " a " + to, type, from, to, null, null, null); }
+    public Report transactionsByType(String type, String from, String to) { return transactionsByTypeAndDateRange(type, from, to); }
+    public Report transactionsByUserReport(int id) { return transactionDetails("Transacciones por usuario", null, null, null, id, null, null); }
+    public Report transactionsByPersonReport(int id) { return transactionDetails("Transacciones por persona", null, null, null, null, id, null); }
+    public Report transactionsByPerson(int id, String from, String to) { return transactionDetails("Transacciones por persona", null, from, to, null, id, null); }
 
-    // Reporte transacciones por persona
-    public Report transactionsByPerson(int personId, String from, String to) {
-        String sql = "SELECT t.id, " +
-                "       GROUP_CONCAT(DISTINCT p.name SEPARATOR ', ') as productos, " +
-                "       t.type, " +
-                "       (SELECT SUM(ti.quantity) FROM transaction_items ti WHERE ti.transaction_id = t.id) as cantidad_total, " +
-                "       t.total_items, " +
-                "       t.date, u.name as usuario, t.person_id, t.notes, t.created_at " +
-                "FROM transactions t " +
-                "LEFT JOIN transaction_items ti ON ti.transaction_id = t.id " +
-                "LEFT JOIN products p ON p.id = ti.product_id " +
-                "LEFT JOIN users u ON u.id = t.user_id " +
-                "WHERE t.person_id = ? AND date(t.created_at) BETWEEN date(?) AND date(?) " +
-                "GROUP BY t.id, t.type, t.date, u.name, t.person_id, t.notes, t.created_at " +
-                "ORDER BY t.created_at DESC";
-        Report res = new Report("Transacciones por persona");
-        res.addHeader("ID");
-        res.addHeader("Productos");
-        res.addHeader("Tipo");
-        res.addHeader("Cantidad Total");
-        res.addHeader("Items");
-        res.addHeader("Fecha");
-        res.addHeader("Usuario");
-        res.addHeader("Person ID");
-        res.addHeader("Notas");
-        res.addHeader("Creado");
-
-        PreparedStatement ps = null;
-        ResultSet rs = null;
-        try {
-            ps = Base.connection().prepareStatement(sql);
-            ps.setInt(1, personId);
-            ps.setString(2, from);
-            ps.setString(3, to);
-            rs = ps.executeQuery();
-            while (rs.next()) {
-                List<String> row = new ArrayList<>();
-                row.add(String.valueOf(rs.getInt("id")));
-
-                String productos = rs.getString("productos");
-                int totalItems = rs.getInt("total_items");
-                // Siempre mostrar nombres de productos
-                row.add(productos != null ? productos : "N/A");
-
-                row.add(rs.getString("type"));
-                row.add(String.format("%.2f", rs.getDouble("cantidad_total")));
-                row.add(String.valueOf(totalItems));
-                row.add(rs.getString("date"));
-                row.add(rs.getString("usuario"));
-                row.add(String.valueOf(rs.getObject("person_id")));
-                row.add(rs.getString("notes"));
-                row.add(rs.getString("created_at"));
-                res.addRow(row);
-            }
-        } catch (Exception e) {
-            Logs.error(this.getClass(), "Error ejecutando transactionsByPerson: {}", e.getMessage());
-            throw new RuntimeException(e);
-        } finally {
-            try { if (rs != null) rs.close(); } catch (Exception ignored) {}
-            try { if (ps != null) ps.close(); } catch (Exception ignored) {}
-        }
-        return res;
-    }
-
-    // Reporte de personas registradas
     public Report peopleRegistered(String from, String to) {
-        String sql = "SELECT id, dni, first_name, last_name, phone, internal_code, created_at FROM people WHERE date(created_at) BETWEEN date(?) AND date(?) ORDER BY created_at DESC";
-        Report res = new Report("Personas registradas");
-        res.addHeader("ID"); res.addHeader("DNI"); res.addHeader("Nombre"); res.addHeader("Apellido"); res.addHeader("Teléfono"); res.addHeader("Código interno"); res.addHeader("Creado");
-
-        PreparedStatement ps = null;
-        ResultSet rs = null;
-        try {
-            ps = Base.connection().prepareStatement(sql);
-            ps.setString(1, from);
-            ps.setString(2, to);
-            rs = ps.executeQuery();
-            while (rs.next()) {
-                List<String> row = new ArrayList<>();
-                row.add(String.valueOf(rs.getInt("id")));
-                row.add(rs.getString("dni"));
-                row.add(rs.getString("first_name"));
-                row.add(rs.getString("last_name"));
-                row.add(rs.getString("phone"));
-                row.add(rs.getString("internal_code"));
-                row.add(rs.getString("created_at"));
-                res.addRow(row);
-            }
-        } catch (Exception e) {
-            Logs.error(this.getClass(), "Error ejecutando peopleRegistered: {}", e.getMessage());
-            throw new RuntimeException(e);
-        } finally {
-            try { if (rs != null) rs.close(); } catch (Exception ignored) {}
-            try { if (ps != null) ps.close(); } catch (Exception ignored) {}
-        }
-        return res;
+        return query("Personas registradas " + from + " a " + to,
+            new String[]{"ID", "DNI", "Nombre", "Apellido", "Teléfono", "Código interno", "Estado", "Fecha de registro"},
+            "SELECT id, dni, first_name, last_name, phone, internal_code, " + String.format(STATE, "status")
+            + ", created_at FROM people WHERE status != 'deleted' AND DATE(created_at) BETWEEN DATE(?) AND DATE(?) ORDER BY id DESC", from, to);
     }
 
-    // --- NUEVOS: reportes de usuarios ---
-    // Reporte de usuarios excluyendo root
-    public Report usersExcludingRoot() {
-        String sql = "SELECT u.id, u.name, u.username, r.nombre as role, u.created_at " +
-                     "FROM users u " +
-                     "LEFT JOIN roles r ON u.rol_id = r.id " +
-                     "WHERE u.rol_id != 1 " +
-                     "ORDER BY u.name";
-        Report res = new Report("Usuarios del Sistema (sin Root)");
-        res.addHeader("ID"); res.addHeader("Nombre"); res.addHeader("Username"); res.addHeader("Rol"); res.addHeader("Creado");
-
-        try (PreparedStatement ps = Base.connection().prepareStatement(sql);
-             ResultSet rs = ps.executeQuery()) {
-            while (rs.next()) {
-                List<String> row = new ArrayList<>();
-                row.add(String.valueOf(rs.getInt("id")));
-                row.add(rs.getString("name"));
-                row.add(rs.getString("username"));
-                row.add(rs.getString("role"));
-                row.add(rs.getString("created_at"));
-                res.addRow(row);
-            }
-        } catch (Exception e) {
-            Logs.error(this.getClass(), "Error ejecutando usersExcludingRoot: {}", e.getMessage());
-            throw new RuntimeException(e);
-        }
-        return res;
-    }
-
-    // Reporte de usuarios agrupados por rol
-    public Report usersGroupedByRole() {
-        String sql = "SELECT u.id, u.name, u.username, r.nombre as role, u.created_at " +
-                     "FROM users u " +
-                     "LEFT JOIN roles r ON u.rol_id = r.id " +
-                     "WHERE u.rol_id != 1 " +
-                     "ORDER BY r.nombre, u.name";
-        Report res = new Report("Usuarios Agrupados por Rol");
-        res.addHeader("ID"); res.addHeader("Nombre"); res.addHeader("Username"); res.addHeader("Rol"); res.addHeader("Creado");
-
-        try (PreparedStatement ps = Base.connection().prepareStatement(sql);
-             ResultSet rs = ps.executeQuery()) {
-            while (rs.next()) {
-                List<String> row = new ArrayList<>();
-                row.add(String.valueOf(rs.getInt("id")));
-                row.add(rs.getString("name"));
-                row.add(rs.getString("username"));
-                row.add(rs.getString("role"));
-                row.add(rs.getString("created_at"));
-                res.addRow(row);
-            }
-        } catch (Exception e) {
-            Logs.error(this.getClass(), "Error ejecutando usersGroupedByRole: {}", e.getMessage());
-            throw new RuntimeException(e);
-        }
-        return res;
-    }
-
-    // --- NUEVOS: reportes de inventario ---
-    // Reporte de inventario completo
-    public Report inventoryComplete() {
-        String sql = "SELECT id, name, description, unit, current_stock, minimum_stock, created_at " +
-                     "FROM products ORDER BY name";
-        Report res = new Report("Inventario Completo");
-        res.addHeader("ID");
-        res.addHeader("Nombre");
-        res.addHeader("Descripción");
-        res.addHeader("Unidad");
-        res.addHeader("Stock Actual");
-        res.addHeader("Stock Mínimo");
-        res.addHeader("Fecha Registro");
-
-        try (PreparedStatement ps = Base.connection().prepareStatement(sql);
-             ResultSet rs = ps.executeQuery()) {
-            while (rs.next()) {
-                List<String> row = new ArrayList<>();
-                row.add(String.valueOf(rs.getInt("id")));
-                row.add(rs.getString("name"));
-                row.add(rs.getString("description"));
-                row.add(rs.getString("unit"));
-                row.add(String.valueOf(rs.getObject("current_stock")));
-                row.add(String.valueOf(rs.getObject("minimum_stock")));
-                row.add(rs.getString("created_at"));
-                res.addRow(row);
-            }
-        } catch (Exception e) {
-            Logs.error(this.getClass(), "Error ejecutando inventoryComplete: {}", e.getMessage());
-            throw new RuntimeException(e);
-        }
-        return res;
-    }
-
-    // Reporte de productos con stock bajo
-    public Report inventoryLowStockReport() {
-        String sql = "SELECT id, name, description, unit, current_stock, minimum_stock " +
-                     "FROM products WHERE current_stock <= minimum_stock ORDER BY current_stock ASC, name";
-        Report res = new Report("Productos con Stock Bajo");
-        res.addHeader("ID");
-        res.addHeader("Nombre");
-        res.addHeader("Descripción");
-        res.addHeader("Unidad");
-        res.addHeader("Stock Actual");
-        res.addHeader("Stock Mínimo");
-
-        try (PreparedStatement ps = Base.connection().prepareStatement(sql);
-             ResultSet rs = ps.executeQuery()) {
-            while (rs.next()) {
-                List<String> row = new ArrayList<>();
-                row.add(String.valueOf(rs.getInt("id")));
-                row.add(rs.getString("name"));
-                row.add(rs.getString("description"));
-                row.add(rs.getString("unit"));
-                row.add(String.valueOf(rs.getObject("current_stock")));
-                row.add(String.valueOf(rs.getObject("minimum_stock")));
-                res.addRow(row);
-            }
-        } catch (Exception e) {
-            Logs.error(this.getClass(), "Error ejecutando inventoryLowStockReport: {}", e.getMessage());
-            throw new RuntimeException(e);
-        }
-        return res;
-    }
-
-    // Reporte de productos sin stock
-    public Report inventoryOutOfStock() {
-        String sql = "SELECT id, name, description, unit, minimum_stock, created_at " +
-                     "FROM products WHERE current_stock = 0 ORDER BY name";
-        Report res = new Report("Productos Sin Stock");
-        res.addHeader("ID");
-        res.addHeader("Nombre");
-        res.addHeader("Descripción");
-        res.addHeader("Unidad");
-        res.addHeader("Stock Mínimo");
-        res.addHeader("Fecha Registro");
-
-        try (PreparedStatement ps = Base.connection().prepareStatement(sql);
-             ResultSet rs = ps.executeQuery()) {
-            while (rs.next()) {
-                List<String> row = new ArrayList<>();
-                row.add(String.valueOf(rs.getInt("id")));
-                row.add(rs.getString("name"));
-                row.add(rs.getString("description"));
-                row.add(rs.getString("unit"));
-                row.add(String.valueOf(rs.getObject("minimum_stock")));
-                row.add(rs.getString("created_at"));
-                res.addRow(row);
-            }
-        } catch (Exception e) {
-            Logs.error(this.getClass(), "Error ejecutando inventoryOutOfStock: {}", e.getMessage());
-            throw new RuntimeException(e);
-        }
-        return res;
-    }
-
-    // Reporte de movimientos de inventario (últimos 30 días)
-    public Report inventoryMovements() {
-        String sql = "SELECT t.id, " +
-                     "       GROUP_CONCAT(DISTINCT p.name SEPARATOR ', ') as productos, " +
-                     "       t.type, " +
-                     "       (SELECT SUM(ti.quantity) FROM transaction_items ti WHERE ti.transaction_id = t.id) as cantidad_total, " +
-                     "       t.total_items, " +
-                     "       t.date, " +
-                     "       u.username as usuario, " +
-                     "       COALESCE(pe.first_name, '') as persona_nombre, " +
-                     "       COALESCE(pe.last_name, '') as persona_apellido, " +
-                     "       t.notes " +
-                     "FROM transactions t " +
-                     "LEFT JOIN transaction_items ti ON ti.transaction_id = t.id " +
-                     "LEFT JOIN products p ON p.id = ti.product_id " +
-                     "LEFT JOIN users u ON u.id = t.user_id " +
-                     "LEFT JOIN people pe ON pe.id = t.person_id " +
-                     "WHERE t.date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY) " +
-                     "GROUP BY t.id, t.type, t.date, u.username, persona_nombre, persona_apellido, t.notes " +
-                     "ORDER BY t.date DESC, t.created_at DESC";
-        Report res = new Report("Movimientos de Inventario (Últimos 30 días)");
-        res.addHeader("ID");
-        res.addHeader("Productos");
-        res.addHeader("Tipo");
-        res.addHeader("Cantidad Total");
-        res.addHeader("Items");
-        res.addHeader("Fecha");
-        res.addHeader("Usuario");
-        res.addHeader("Persona");
-        res.addHeader("Notas");
-
-        try (PreparedStatement ps = Base.connection().prepareStatement(sql);
-             ResultSet rs = ps.executeQuery()) {
-            while (rs.next()) {
-                List<String> row = new ArrayList<>();
-                row.add(String.valueOf(rs.getInt("id")));
-
-                String productos = rs.getString("productos");
-                int totalItems = rs.getInt("total_items");
-                // Siempre mostrar nombres de productos
-                row.add(productos != null ? productos : "N/A");
-
-                // Formatear tipo de transacción
-                String type = rs.getString("type");
-                String typeLabel = switch (type) {
-                    case "in" -> "Ingreso";
-                    case "out" -> "Egreso";
-                    case "loan" -> "Préstamo";
-                    default -> type;
-                };
-                row.add(typeLabel);
-
-                row.add(String.format("%.2f", rs.getDouble("cantidad_total")));
-                row.add(String.valueOf(totalItems));
-                row.add(rs.getString("date"));
-                row.add(rs.getString("usuario"));
-
-                // Concatenar nombre completo de persona si existe
-                String personaNombre = rs.getString("persona_nombre");
-                String personaApellido = rs.getString("persona_apellido");
-                String personaCompleto = "";
-                if (personaNombre != null && !personaNombre.isEmpty()) {
-                    personaCompleto = personaNombre + " " + personaApellido;
-                }
-                row.add(personaCompleto.trim());
-
-                row.add(rs.getString("notes"));
-                res.addRow(row);
-            }
-        } catch (Exception e) {
-            Logs.error(this.getClass(), "Error ejecutando inventoryMovements: {}", e.getMessage());
-            throw new RuntimeException(e);
-        }
-        return res;
-    }
-
-    // --- REPORTES CON RANGO DE FECHAS PERSONALIZADO ---
-
-    // Reporte de movimientos de inventario por rango de fechas
-    public Report inventoryMovementsByDateRange(String from, String to) {
-        String sql = "SELECT t.id, " +
-                     "       GROUP_CONCAT(DISTINCT p.name SEPARATOR ', ') as productos, " +
-                     "       t.type, " +
-                     "       (SELECT SUM(ti.quantity) FROM transaction_items ti WHERE ti.transaction_id = t.id) as cantidad_total, " +
-                     "       t.total_items, " +
-                     "       t.date, " +
-                     "       u.username as usuario, " +
-                     "       COALESCE(pe.first_name, '') as persona_nombre, " +
-                     "       COALESCE(pe.last_name, '') as persona_apellido " +
-                     "FROM transactions t " +
-                     "LEFT JOIN transaction_items ti ON ti.transaction_id = t.id " +
-                     "LEFT JOIN products p ON p.id = ti.product_id " +
-                     "LEFT JOIN users u ON u.id = t.user_id " +
-                     "LEFT JOIN people pe ON pe.id = t.person_id " +
-                     "WHERE t.date BETWEEN ? AND ? " +
-                     "GROUP BY t.id, t.type, t.date, u.username, persona_nombre, persona_apellido " +
-                     "ORDER BY t.date DESC, t.created_at DESC";
-        Report res = new Report("Movimientos de Inventario por Rango de Fechas");
-        res.addHeader("ID");
-        res.addHeader("Productos");
-        res.addHeader("Tipo");
-        res.addHeader("Cantidad Total");
-        res.addHeader("Items");
-        res.addHeader("Fecha");
-        res.addHeader("Usuario");
-        res.addHeader("Persona");
-
-        PreparedStatement ps = null;
-        ResultSet rs = null;
-        try {
-            ps = Base.connection().prepareStatement(sql);
-            ps.setString(1, from);
-            ps.setString(2, to);
-            rs = ps.executeQuery();
-            while (rs.next()) {
-                List<String> row = new ArrayList<>();
-                row.add(String.valueOf(rs.getInt("id")));
-
-                String productos = rs.getString("productos");
-                int totalItems = rs.getInt("total_items");
-                // Siempre mostrar nombres de productos
-                row.add(productos != null ? productos : "N/A");
-
-                // Formatear tipo de transacción
-                String type = rs.getString("type");
-                String typeLabel = switch (type) {
-                    case "in" -> "Ingreso";
-                    case "out" -> "Egreso";
-                    case "loan" -> "Préstamo";
-                    default -> type;
-                };
-                row.add(typeLabel);
-
-                row.add(String.format("%.2f", rs.getDouble("cantidad_total")));
-                row.add(String.valueOf(totalItems));
-                row.add(rs.getString("date"));
-                row.add(rs.getString("usuario"));
-
-                // Concatenar nombre completo de persona si existe
-                String personaNombre = rs.getString("persona_nombre");
-                String personaApellido = rs.getString("persona_apellido");
-                String personaCompleto = "";
-                if (personaNombre != null && !personaNombre.isEmpty()) {
-                    personaCompleto = personaNombre + " " + personaApellido;
-                }
-                row.add(personaCompleto.trim());
-
-                res.addRow(row);
-            }
-        } catch (Exception e) {
-            Logs.error(this.getClass(), "Error ejecutando inventoryMovementsByDateRange: {}", e.getMessage());
-            throw new RuntimeException(e);
-        } finally {
-            try { if (rs != null) rs.close(); } catch (Exception ignored) {}
-            try { if (ps != null) ps.close(); } catch (Exception ignored) {}
-        }
-        return res;
-    }
-
-    // Reporte de productos registrados por rango de fechas
-    public Report inventoryProductsByDateRange(String from, String to) {
-        String sql = "SELECT id, name, description, unit, current_stock, minimum_stock, created_at " +
-                     "FROM products WHERE date(created_at) BETWEEN date(?) AND date(?) ORDER BY created_at DESC";
-        Report res = new Report("Productos Registrados por Rango de Fechas");
-        res.addHeader("ID");
-        res.addHeader("Nombre");
-        res.addHeader("Descripción");
-        res.addHeader("Unidad");
-        res.addHeader("Stock Actual");
-        res.addHeader("Stock Mínimo");
-        res.addHeader("Fecha Registro");
-
-        PreparedStatement ps = null;
-        ResultSet rs = null;
-        try {
-            ps = Base.connection().prepareStatement(sql);
-            ps.setString(1, from);
-            ps.setString(2, to);
-            rs = ps.executeQuery();
-            while (rs.next()) {
-                List<String> row = new ArrayList<>();
-                row.add(String.valueOf(rs.getInt("id")));
-                row.add(rs.getString("name"));
-                row.add(rs.getString("description"));
-                row.add(rs.getString("unit"));
-                row.add(String.valueOf(rs.getObject("current_stock")));
-                row.add(String.valueOf(rs.getObject("minimum_stock")));
-                row.add(rs.getString("created_at"));
-                res.addRow(row);
-            }
-        } catch (Exception e) {
-            Logs.error(this.getClass(), "Error ejecutando inventoryProductsByDateRange: {}", e.getMessage());
-            throw new RuntimeException(e);
-        } finally {
-            try { if (rs != null) rs.close(); } catch (Exception ignored) {}
-            try { if (ps != null) ps.close(); } catch (Exception ignored) {}
-        }
-        return res;
-    }
-
-    // --- REPORTES DE TRANSACCIONES ---
-
-    // Reporte de historial de transacciones completo
-    public Report transactionsAll() {
-        String sql = "SELECT t.id, " +
-                     "       GROUP_CONCAT(DISTINCT p.name SEPARATOR ', ') as productos, " +
-                     "       t.type, " +
-                     "       (SELECT SUM(ti.quantity) FROM transaction_items ti WHERE ti.transaction_id = t.id) as cantidad_total, " +
-                     "       t.total_items, " +
-                     "       t.date, " +
-                     "       u.username as usuario, " +
-                     "       COALESCE(pe.first_name, '') as persona_nombre, " +
-                     "       COALESCE(pe.last_name, '') as persona_apellido, " +
-                     "       t.created_at " +
-                     "FROM transactions t " +
-                     "LEFT JOIN transaction_items ti ON ti.transaction_id = t.id " +
-                     "LEFT JOIN products p ON p.id = ti.product_id " +
-                     "LEFT JOIN users u ON u.id = t.user_id " +
-                     "LEFT JOIN people pe ON pe.id = t.person_id " +
-                     "GROUP BY t.id, t.type, t.date, u.username, persona_nombre, persona_apellido, t.created_at " +
-                     "ORDER BY t.created_at DESC";
-        Report res = new Report("Historial Completo de Transacciones");
-        res.addHeader("ID");
-        res.addHeader("Productos");
-        res.addHeader("Tipo");
-        res.addHeader("Cantidad Total");
-        res.addHeader("Items");
-        res.addHeader("Fecha");
-        res.addHeader("Usuario");
-        res.addHeader("Persona");
-        res.addHeader("Registro");
-
-        try (PreparedStatement ps = Base.connection().prepareStatement(sql);
-             ResultSet rs = ps.executeQuery()) {
-            while (rs.next()) {
-                List<String> row = new ArrayList<>();
-                row.add(String.valueOf(rs.getInt("id")));
-
-                // Mostrar productos
-                String productos = rs.getString("productos");
-                int totalItems = rs.getInt("total_items");
-                // Siempre mostrar nombres de productos
-                row.add(productos != null ? productos : "N/A");
-
-                // Formatear tipo de transacción
-                String type = rs.getString("type");
-                String typeLabel = switch (type) {
-                    case "in" -> "Ingreso";
-                    case "out" -> "Egreso";
-                    case "loan" -> "Préstamo";
-                    default -> type;
-                };
-                row.add(typeLabel);
-
-                row.add(String.format("%.2f", rs.getDouble("cantidad_total")));
-                row.add(String.valueOf(totalItems));
-                row.add(rs.getString("date"));
-                row.add(rs.getString("usuario"));
-
-                // Concatenar nombre completo de persona si existe
-                String personaNombre = rs.getString("persona_nombre");
-                String personaApellido = rs.getString("persona_apellido");
-                String personaCompleto = "";
-                if (personaNombre != null && !personaNombre.isEmpty()) {
-                    personaCompleto = personaNombre + " " + personaApellido;
-                }
-                row.add(personaCompleto.trim());
-
-                row.add(rs.getString("created_at"));
-                res.addRow(row);
-            }
-        } catch (Exception e) {
-            Logs.error(this.getClass(), "Error ejecutando transactionsAll: {}", e.getMessage());
-            throw new RuntimeException(e);
-        }
-        return res;
-    }
-
-    // Reporte de transacciones por tipo
-    public Report transactionsByTypeReport(@NotNull String type) {
-        String sql = "SELECT t.id, " +
-                     "       GROUP_CONCAT(DISTINCT p.name SEPARATOR ', ') as productos, " +
-                     "       t.type, " +
-                     "       (SELECT SUM(ti.quantity) FROM transaction_items ti WHERE ti.transaction_id = t.id) as cantidad_total, " +
-                     "       t.total_items, " +
-                     "       t.date, " +
-                     "       u.username as usuario, " +
-                     "       COALESCE(pe.first_name, '') as persona_nombre, " +
-                     "       COALESCE(pe.last_name, '') as persona_apellido, " +
-                     "       t.created_at " +
-                     "FROM transactions t " +
-                     "LEFT JOIN transaction_items ti ON ti.transaction_id = t.id " +
-                     "LEFT JOIN products p ON p.id = ti.product_id " +
-                     "LEFT JOIN users u ON u.id = t.user_id " +
-                     "LEFT JOIN people pe ON pe.id = t.person_id " +
-                     "WHERE t.type = ? " +
-                     "GROUP BY t.id, t.type, t.date, u.username, persona_nombre, persona_apellido, t.created_at " +
-                     "ORDER BY t.created_at DESC";
-
-        String typeName = switch (type) {
-            case "in" -> "Ingresos";
-            case "out" -> "Egresos";
-            case "loan" -> "Préstamos";
-            default -> "Transacciones";
-        };
-
-        Report res = new Report("Transacciones: " + typeName);
-        res.addHeader("ID");
-        res.addHeader("Productos");
-        res.addHeader("Tipo");
-        res.addHeader("Cantidad Total");
-        res.addHeader("Items");
-        res.addHeader("Fecha");
-        res.addHeader("Usuario");
-        res.addHeader("Persona");
-        res.addHeader("Registro");
-
-        PreparedStatement ps = null;
-        ResultSet rs = null;
-        try {
-            ps = Base.connection().prepareStatement(sql);
-            ps.setString(1, type);
-            rs = ps.executeQuery();
-            while (rs.next()) {
-                List<String> row = new ArrayList<>();
-                row.add(String.valueOf(rs.getInt("id")));
-
-                // Mostrar productos
-                String productos = rs.getString("productos");
-                int totalItems = rs.getInt("total_items");
-                // Siempre mostrar nombres de productos
-                row.add(productos != null ? productos : "N/A");
-
-                String typeValue = rs.getString("type");
-                String typeLabel = switch (typeValue) {
-                    case "in" -> "Ingreso";
-                    case "out" -> "Egreso";
-                    case "loan" -> "Préstamo";
-                    default -> typeValue;
-                };
-                row.add(typeLabel);
-
-                row.add(String.format("%.2f", rs.getDouble("cantidad_total")));
-                row.add(String.valueOf(totalItems));
-                row.add(rs.getString("date"));
-                row.add(rs.getString("usuario"));
-
-                String personaNombre = rs.getString("persona_nombre");
-                String personaApellido = rs.getString("persona_apellido");
-                String personaCompleto = "";
-                if (personaNombre != null && !personaNombre.isEmpty()) {
-                    personaCompleto = personaNombre + " " + personaApellido;
-                }
-                row.add(personaCompleto.trim());
-
-                row.add(rs.getString("created_at"));
-                res.addRow(row);
-            }
-        } catch (Exception e) {
-            Logs.error(this.getClass(), "Error ejecutando transactionsByTypeReport: {}", e.getMessage());
-            throw new RuntimeException(e);
-        } finally {
-            try { if (rs != null) rs.close(); } catch (Exception ignored) {}
-            try { if (ps != null) ps.close(); } catch (Exception ignored) {}
-        }
-        return res;
-    }
-
-    // Reporte de transacciones por tipo y rango de fechas
-    public Report transactionsByTypeAndDateRange(@NotNull String type, String from, String to) {
-        String sql = "SELECT t.id, " +
-                     "       GROUP_CONCAT(DISTINCT p.name SEPARATOR ', ') as productos, " +
-                     "       t.type, " +
-                     "       (SELECT SUM(ti.quantity) FROM transaction_items ti WHERE ti.transaction_id = t.id) as cantidad_total, " +
-                     "       t.total_items, " +
-                     "       t.date, " +
-                     "       u.username as usuario, " +
-                     "       COALESCE(pe.first_name, '') as persona_nombre, " +
-                     "       COALESCE(pe.last_name, '') as persona_apellido, " +
-                     "       t.created_at " +
-                     "FROM transactions t " +
-                     "LEFT JOIN transaction_items ti ON ti.transaction_id = t.id " +
-                     "LEFT JOIN products p ON p.id = ti.product_id " +
-                     "LEFT JOIN users u ON u.id = t.user_id " +
-                     "LEFT JOIN people pe ON pe.id = t.person_id " +
-                     "WHERE t.type = ? AND t.date BETWEEN ? AND ? " +
-                     "GROUP BY t.id, t.type, t.date, u.username, persona_nombre, persona_apellido, t.created_at " +
-                     "ORDER BY t.date DESC, t.created_at DESC";
-
-        String typeName = switch (type) {
-            case "in" -> "Ingresos";
-            case "out" -> "Egresos";
-            case "loan" -> "Préstamos";
-            default -> "Transacciones";
-        };
-
-        Report res = new Report(typeName + " por Rango de Fechas");
-        res.addHeader("ID");
-        res.addHeader("Productos");
-        res.addHeader("Tipo");
-        res.addHeader("Cantidad Total");
-        res.addHeader("Items");
-        res.addHeader("Fecha");
-        res.addHeader("Usuario");
-        res.addHeader("Persona");
-        res.addHeader("Registro");
-
-        PreparedStatement ps = null;
-        ResultSet rs = null;
-        try {
-            ps = Base.connection().prepareStatement(sql);
-            ps.setString(1, type);
-            ps.setString(2, from);
-            ps.setString(3, to);
-            rs = ps.executeQuery();
-            while (rs.next()) {
-                List<String> row = new ArrayList<>();
-                row.add(String.valueOf(rs.getInt("id")));
-
-                String productos = rs.getString("productos");
-                int totalItems = rs.getInt("total_items");
-                // Siempre mostrar nombres de productos
-                row.add(productos != null ? productos : "N/A");
-
-                String typeValue = rs.getString("type");
-                String typeLabel = switch (typeValue) {
-                    case "in" -> "Ingreso";
-                    case "out" -> "Egreso";
-                    case "loan" -> "Préstamo";
-                    default -> typeValue;
-                };
-                row.add(typeLabel);
-
-                row.add(String.format("%.2f", rs.getDouble("cantidad_total")));
-                row.add(String.valueOf(totalItems));
-                row.add(rs.getString("date"));
-                row.add(rs.getString("usuario"));
-
-                String personaNombre = rs.getString("persona_nombre");
-                String personaApellido = rs.getString("persona_apellido");
-                String personaCompleto = "";
-                if (personaNombre != null && !personaNombre.isEmpty()) {
-                    personaCompleto = personaNombre + " " + personaApellido;
-                }
-                row.add(personaCompleto.trim());
-
-                row.add(rs.getString("created_at"));
-                res.addRow(row);
-            }
-        } catch (Exception e) {
-            Logs.error(this.getClass(), "Error ejecutando transactionsByTypeAndDateRange: {}", e.getMessage());
-            throw new RuntimeException(e);
-        } finally {
-            try { if (rs != null) rs.close(); } catch (Exception ignored) {}
-            try { if (ps != null) ps.close(); } catch (Exception ignored) {}
-        }
-        return res;
-    }
-
-    // Reporte de transacciones por usuario
-    public Report transactionsByUserReport(int userId) {
-        String sql = "SELECT t.id, " +
-                     "       GROUP_CONCAT(DISTINCT p.name SEPARATOR ', ') as productos, " +
-                     "       t.type, " +
-                     "       (SELECT SUM(ti.quantity) FROM transaction_items ti WHERE ti.transaction_id = t.id) as cantidad_total, " +
-                     "       t.total_items, " +
-                     "       t.date, " +
-                     "       u.username as usuario, " +
-                     "       COALESCE(pe.first_name, '') as persona_nombre, " +
-                     "       COALESCE(pe.last_name, '') as persona_apellido, " +
-                     "       t.created_at " +
-                     "FROM transactions t " +
-                     "LEFT JOIN transaction_items ti ON ti.transaction_id = t.id " +
-                     "LEFT JOIN products p ON p.id = ti.product_id " +
-                     "LEFT JOIN users u ON u.id = t.user_id " +
-                     "LEFT JOIN people pe ON pe.id = t.person_id " +
-                     "WHERE t.user_id = ? " +
-                     "GROUP BY t.id, t.type, t.date, u.username, persona_nombre, persona_apellido, t.created_at " +
-                     "ORDER BY t.created_at DESC";
-
-        Report res = new Report("Transacciones por Usuario");
-        res.addHeader("ID");
-        res.addHeader("Productos");
-        res.addHeader("Tipo");
-        res.addHeader("Cantidad Total");
-        res.addHeader("Items");
-        res.addHeader("Fecha");
-        res.addHeader("Usuario");
-        res.addHeader("Persona");
-        res.addHeader("Registro");
-
-        PreparedStatement ps = null;
-        ResultSet rs = null;
-        try {
-            ps = Base.connection().prepareStatement(sql);
-            ps.setInt(1, userId);
-            rs = ps.executeQuery();
-            while (rs.next()) {
-                List<String> row = new ArrayList<>();
-                row.add(String.valueOf(rs.getInt("id")));
-
-                String productos = rs.getString("productos");
-                int totalItems = rs.getInt("total_items");
-                // Siempre mostrar nombres de productos
-                row.add(productos != null ? productos : "N/A");
-
-                String type = rs.getString("type");
-                String typeLabel = switch (type) {
-                    case "in" -> "Ingreso";
-                    case "out" -> "Egreso";
-                    case "loan" -> "Préstamo";
-                    default -> type;
-                };
-                row.add(typeLabel);
-
-                row.add(String.format("%.2f", rs.getDouble("cantidad_total")));
-                row.add(String.valueOf(totalItems));
-                row.add(rs.getString("date"));
-                row.add(rs.getString("usuario"));
-
-                String personaNombre = rs.getString("persona_nombre");
-                String personaApellido = rs.getString("persona_apellido");
-                String personaCompleto = "";
-                if (personaNombre != null && !personaNombre.isEmpty()) {
-                    personaCompleto = personaNombre + " " + personaApellido;
-                }
-                row.add(personaCompleto.trim());
-
-                row.add(rs.getString("created_at"));
-                res.addRow(row);
-            }
-        } catch (Exception e) {
-            Logs.error(this.getClass(), "Error ejecutando transactionsByUserReport: {}", e.getMessage());
-            throw new RuntimeException(e);
-        } finally {
-            try { if (rs != null) rs.close(); } catch (Exception ignored) {}
-            try { if (ps != null) ps.close(); } catch (Exception ignored) {}
-        }
-        return res;
-    }
-
-    // Reporte de transacciones por persona
-    public Report transactionsByPersonReport(int personId) {
-        String sql = "SELECT t.id, " +
-                     "       GROUP_CONCAT(DISTINCT p.name SEPARATOR ', ') as productos, " +
-                     "       t.type, " +
-                     "       (SELECT SUM(ti.quantity) FROM transaction_items ti WHERE ti.transaction_id = t.id) as cantidad_total, " +
-                     "       t.total_items, " +
-                     "       t.date, " +
-                     "       u.username as usuario, " +
-                     "       COALESCE(pe.first_name, '') as persona_nombre, " +
-                     "       COALESCE(pe.last_name, '') as persona_apellido, " +
-                     "       t.created_at " +
-                     "FROM transactions t " +
-                     "LEFT JOIN transaction_items ti ON ti.transaction_id = t.id " +
-                     "LEFT JOIN products p ON p.id = ti.product_id " +
-                     "LEFT JOIN users u ON u.id = t.user_id " +
-                     "LEFT JOIN people pe ON pe.id = t.person_id " +
-                     "WHERE t.person_id = ? " +
-                     "GROUP BY t.id, t.type, t.date, u.username, persona_nombre, persona_apellido, t.created_at " +
-                     "ORDER BY t.created_at DESC";
-
-        Report res = new Report("Transacciones por Persona");
-        res.addHeader("ID");
-        res.addHeader("Productos");
-        res.addHeader("Tipo");
-        res.addHeader("Cantidad Total");
-        res.addHeader("Items");
-        res.addHeader("Fecha");
-        res.addHeader("Usuario");
-        res.addHeader("Persona");
-        res.addHeader("Registro");
-
-        PreparedStatement ps = null;
-        ResultSet rs = null;
-        try {
-            ps = Base.connection().prepareStatement(sql);
-            ps.setInt(1, personId);
-            rs = ps.executeQuery();
-            while (rs.next()) {
-                List<String> row = new ArrayList<>();
-                row.add(String.valueOf(rs.getInt("id")));
-
-                String productos = rs.getString("productos");
-                int totalItems = rs.getInt("total_items");
-                // Siempre mostrar nombres de productos
-                row.add(productos != null ? productos : "N/A");
-
-                String type = rs.getString("type");
-                String typeLabel = switch (type) {
-                    case "in" -> "Ingreso";
-                    case "out" -> "Egreso";
-                    case "loan" -> "Préstamo";
-                    default -> type;
-                };
-                row.add(typeLabel);
-
-                row.add(String.format("%.2f", rs.getDouble("cantidad_total")));
-                row.add(String.valueOf(totalItems));
-                row.add(rs.getString("date"));
-                row.add(rs.getString("usuario"));
-
-                String personaNombre = rs.getString("persona_nombre");
-                String personaApellido = rs.getString("persona_apellido");
-                String personaCompleto = "";
-                if (personaNombre != null && !personaNombre.isEmpty()) {
-                    personaCompleto = personaNombre + " " + personaApellido;
-                }
-                row.add(personaCompleto.trim());
-
-                row.add(rs.getString("created_at"));
-                res.addRow(row);
-            }
-        } catch (Exception e) {
-            Logs.error(this.getClass(), "Error ejecutando transactionsByPersonReport: {}", e.getMessage());
-            throw new RuntimeException(e);
-        } finally {
-            try { if (rs != null) rs.close(); } catch (Exception ignored) {}
-            try { if (ps != null) ps.close(); } catch (Exception ignored) {}
-        }
-        return res;
-    }
-
-    // --- REPORTES ANALÍTICOS Y DE GESTIÓN ---
-
-    // Reporte de productos más movidos
     public Report productsMostMoved(String from, String to) {
-        String sql = "SELECT p.id, p.name, p.unit, " +
-                     "       COUNT(DISTINCT t.id) as total_movimientos, " +
-                     "       SUM(CASE WHEN t.type='out' THEN ti.quantity ELSE 0 END) as total_egresos, " +
-                     "       SUM(CASE WHEN t.type='in' THEN ti.quantity ELSE 0 END) as total_ingresos, " +
-                     "       SUM(CASE WHEN t.type='loan' THEN ti.quantity ELSE 0 END) as total_prestamos " +
-                     "FROM products p " +
-                     "LEFT JOIN transaction_items ti ON p.id = ti.product_id " +
-                     "LEFT JOIN transactions t ON ti.transaction_id = t.id AND t.date BETWEEN ? AND ? " +
-                     "GROUP BY p.id " +
-                     "ORDER BY total_movimientos DESC " +
-                     "LIMIT 20";
-
-        Report res = new Report("Productos Más Movidos (Top 20)");
-        res.addHeader("ID");
-        res.addHeader("Producto");
-        res.addHeader("Unidad");
-        res.addHeader("Total Movimientos");
-        res.addHeader("Total Egresos");
-        res.addHeader("Total Ingresos");
-        res.addHeader("Total Préstamos");
-
-        PreparedStatement ps = null;
-        ResultSet rs = null;
-        try {
-            ps = Base.connection().prepareStatement(sql);
-            ps.setString(1, from);
-            ps.setString(2, to);
-            rs = ps.executeQuery();
-            while (rs.next()) {
-                List<String> row = new ArrayList<>();
-                row.add(String.valueOf(rs.getInt("id")));
-                row.add(rs.getString("name"));
-                row.add(rs.getString("unit"));
-                row.add(String.valueOf(rs.getInt("total_movimientos")));
-                row.add(String.valueOf(rs.getObject("total_egresos")));
-                row.add(String.valueOf(rs.getObject("total_ingresos")));
-                row.add(String.valueOf(rs.getObject("total_prestamos")));
-                res.addRow(row);
-            }
-        } catch (Exception e) {
-            Logs.error(this.getClass(), "Error ejecutando productsMostMoved: {}", e.getMessage());
-            throw new RuntimeException(e);
-        } finally {
-            try { if (rs != null) rs.close(); } catch (Exception ignored) {}
-            try { if (ps != null) ps.close(); } catch (Exception ignored) {}
-        }
-        return res;
+        return query("Productos con mayor movimiento — operaciones vigentes — " + from + " a " + to,
+            new String[]{"ID", "Producto", "Unidad", "Movimientos", "Cantidad egresada", "Cantidad ingresada", "Cantidad prestada"},
+            "SELECT p.id, p.name, p.unit, COUNT(DISTINCT t.id), "
+            + "SUM(CASE WHEN t.type='out' THEN ti.quantity ELSE 0 END), "
+            + "SUM(CASE WHEN t.type='in' THEN ti.quantity ELSE 0 END), "
+            + "SUM(CASE WHEN t.type='loan' THEN ti.quantity ELSE 0 END) "
+            + "FROM products p JOIN transaction_items ti ON ti.product_id = p.id JOIN transactions t ON t.id = ti.transaction_id "
+            + "WHERE " + VALID + " AND p.status != 'deleted' AND t.date BETWEEN ? AND ? "
+            + "GROUP BY p.id, p.name, p.unit ORDER BY COUNT(DISTINCT t.id) DESC, p.id DESC", from, to);
     }
 
-    // Reporte de personas con préstamos activos
     public Report peopleWithActiveLoans() {
-        String sql = "SELECT pe.id, pe.dni, pe.first_name, pe.last_name, " +
-                     "       GROUP_CONCAT(DISTINCT p.name SEPARATOR ', ') as productos, " +
-                     "       (SELECT SUM(ti.quantity) FROM transaction_items ti WHERE ti.transaction_id = t.id) as cantidad_total, " +
-                     "       t.total_items, " +
-                     "       t.date, t.created_at, " +
-                     "       DATEDIFF(CURDATE(), t.date) as dias_prestamo " +
-                     "FROM transactions t " +
-                     "JOIN people pe ON t.person_id = pe.id " +
-                     "JOIN transaction_items ti ON ti.transaction_id = t.id " +
-                     "JOIN products p ON ti.product_id = p.id " +
-                     "WHERE t.type = 'loan' " +
-                     "GROUP BY t.id, pe.id, pe.dni, pe.first_name, pe.last_name, t.date, t.created_at " +
-                     "ORDER BY t.created_at DESC";
-
-        Report res = new Report("Personas con Préstamos Activos");
-        res.addHeader("ID Persona");
-        res.addHeader("DNI");
-        res.addHeader("Nombre");
-        res.addHeader("Apellido");
-        res.addHeader("Productos");
-        res.addHeader("Cantidad Total");
-        res.addHeader("Items");
-        res.addHeader("Fecha Préstamo");
-        res.addHeader("Días Transcurridos");
-
-        try (PreparedStatement ps = Base.connection().prepareStatement(sql);
-             ResultSet rs = ps.executeQuery()) {
-            while (rs.next()) {
-                List<String> row = new ArrayList<>();
-                row.add(String.valueOf(rs.getInt("id")));
-                row.add(rs.getString("dni"));
-                row.add(rs.getString("first_name"));
-                row.add(rs.getString("last_name"));
-
-                String productos = rs.getString("productos");
-                int totalItems = rs.getInt("total_items");
-                // Siempre mostrar nombres de productos
-                row.add(productos != null ? productos : "N/A");
-
-                row.add(String.format("%.2f", rs.getDouble("cantidad_total")));
-                row.add(String.valueOf(totalItems));
-                row.add(rs.getString("date"));
-                row.add(String.valueOf(rs.getInt("dias_prestamo")));
-                res.addRow(row);
-            }
-        } catch (Exception e) {
-            Logs.error(this.getClass(), "Error ejecutando peopleWithActiveLoans: {}", e.getMessage());
-            throw new RuntimeException(e);
+        Report report = query("Personas con Préstamos Activos",
+            new String[]{"ID préstamo", "Código", "DNI", "Persona", "Producto", "Unidad", "Cantidad", "Fecha de operación", "Devolución prevista", "Estado guardado", "Teléfono"},
+            "SELECT t.id, t.loan_code, pe.dni, TRIM(CONCAT(COALESCE(pe.first_name,''),' ',COALESCE(pe.last_name,''))), "
+            + "p.name, p.unit, ti.quantity, t.date, t.expected_return_date, t.loan_status, pe.phone "
+            + "FROM transactions t LEFT JOIN people pe ON pe.id = t.person_id "
+            + "JOIN transaction_items ti ON ti.transaction_id = t.id JOIN products p ON p.id = ti.product_id "
+            + "WHERE " + VALID + " AND t.type='loan' AND t.loan_status IN ('pending','overdue') "
+            + "ORDER BY t.expected_return_date, t.id DESC, ti.id");
+        Report grouped = new Report(report.getTitle());
+        for (String header : new String[]{"ID préstamo", "Código", "DNI", "Persona", "Teléfono", "Productos",
+                "Fecha de operación", "Devolución prevista", "Estado préstamo", "Días de atraso"}) grouped.addHeader(header);
+        java.util.Map<String, List<String>> loans = new java.util.LinkedHashMap<>();
+        LocalDate today = LocalDate.now();
+        for (List<String> row : report.getRows()) {
+            List<String> summary = loans.computeIfAbsent(row.get(0), key -> {
+                LocalDate due = row.get(8).isBlank() ? null : LocalDate.parse(row.get(8));
+                boolean overdue = com.joshuamc1.sicam.utils.LoanDueDate.isOverdue(row.get(9), due, today);
+                String state = overdue ? "Vencido" : due != null && due.equals(today) ? "Vence hoy" : "Pendiente";
+                String delay = due == null ? "" : String.valueOf(Math.max(0, ChronoUnit.DAYS.between(due, today)));
+                return new ArrayList<>(List.of(row.get(0), row.get(1), row.get(2), row.get(3), row.get(10),
+                    "", row.get(7), row.get(8), state, delay));
+            });
+            summary.set(5, summary.get(5) + (summary.get(5).isEmpty() ? "" : "\n")
+                + row.get(4) + ": " + row.get(6) + " " + row.get(5));
         }
-        return res;
+        // Prioriza vencidos, luego los que vencen hoy, los próximos y los que no tienen fecha.
+        java.util.Comparator<List<String>> priority = java.util.Comparator.comparingInt(row ->
+            row.get(8).equals("Vencido") ? 0 : row.get(8).equals("Vence hoy") ? 1 : 2);
+        priority = priority.thenComparing(row -> row.get(7).isBlank() ? "9999-12-31" : row.get(7))
+            .thenComparing(java.util.Comparator.comparingLong((List<String> row) -> Long.parseLong(row.get(0))).reversed());
+        loans.values().stream().sorted(priority).forEach(grouped::addRow);
+        return grouped;
     }
 
-    // Reporte de consumo mensual por producto
     public Report monthlyConsumption(int months) {
-        String sql = "SELECT p.name as producto, p.unit, " +
-                     "       DATE_FORMAT(t.date, '%Y-%m') as mes, " +
-                     "       SUM(ti.quantity) as total_consumido " +
-                     "FROM products p " +
-                     "JOIN transaction_items ti ON p.id = ti.product_id " +
-                     "JOIN transactions t ON ti.transaction_id = t.id " +
-                     "WHERE t.type = 'out' AND t.date >= DATE_SUB(CURDATE(), INTERVAL ? MONTH) " +
-                     "GROUP BY p.id, mes " +
-                     "ORDER BY mes DESC, total_consumido DESC";
-
-        Report res = new Report("Consumo Mensual de Productos (Últimos " + months + " meses)");
-        res.addHeader("Producto");
-        res.addHeader("Unidad");
-        res.addHeader("Mes");
-        res.addHeader("Total Consumido");
-
-        PreparedStatement ps = null;
-        ResultSet rs = null;
-        try {
-            ps = Base.connection().prepareStatement(sql);
-            ps.setInt(1, months);
-            rs = ps.executeQuery();
-            while (rs.next()) {
-                List<String> row = new ArrayList<>();
-                row.add(rs.getString("producto"));
-                row.add(rs.getString("unit"));
-                row.add(rs.getString("mes"));
-                row.add(String.valueOf(rs.getObject("total_consumido")));
-                res.addRow(row);
-            }
-        } catch (Exception e) {
-            Logs.error(this.getClass(), "Error ejecutando monthlyConsumption: {}", e.getMessage());
-            throw new RuntimeException(e);
-        } finally {
-            try { if (rs != null) rs.close(); } catch (Exception ignored) {}
-            try { if (ps != null) ps.close(); } catch (Exception ignored) {}
-        }
-        return res;
+        if (months < 1) throw new IllegalArgumentException("Meses debe ser positivo");
+        LocalDate start = LocalDate.now().withDayOfMonth(1).minusMonths(months - 1L);
+        Report report = query("Consumo mensual de productos — egresos vigentes — " + start + " a " + LocalDate.now(),
+            new String[]{"ID producto", "Producto", "Unidad", "Mes", "Cantidad consumida", "Egresos"},
+            "SELECT p.id, p.name, p.unit, SUBSTR(CAST(t.date AS CHAR),1,7) AS mes, SUM(ti.quantity), COUNT(DISTINCT t.id) "
+            + "FROM products p JOIN transaction_items ti ON ti.product_id=p.id JOIN transactions t ON t.id=ti.transaction_id "
+            + "WHERE " + VALID + " AND t.type='out' AND t.date BETWEEN ? AND ? "
+            + "GROUP BY p.id, p.name, p.unit, SUBSTR(CAST(t.date AS CHAR),1,7) ORDER BY mes DESC, p.id DESC",
+            start.toString(), LocalDate.now().toString());
+        report.setLandscape(true);
+        return report;
     }
 
-    // Reporte de productos sin movimiento
     public Report productsWithoutMovement(int days) {
-        String sql = "SELECT p.id, p.name, p.description, p.unit, p.current_stock, " +
-                     "       p.created_at, " +
-                     "       COALESCE(MAX(t.date), 'Sin movimientos') as ultimo_movimiento, " +
-                     "       COALESCE(DATEDIFF(CURDATE(), MAX(t.date)), DATEDIFF(CURDATE(), p.created_at)) as dias_sin_movimiento " +
-                     "FROM products p " +
-                     "LEFT JOIN transaction_items ti ON p.id = ti.product_id " +
-                     "LEFT JOIN transactions t ON ti.transaction_id = t.id " +
-                     "GROUP BY p.id " +
-                     "HAVING dias_sin_movimiento >= ? OR ultimo_movimiento = 'Sin movimientos' " +
-                     "ORDER BY dias_sin_movimiento DESC";
-
-        Report res = new Report("Productos Sin Movimiento (Últimos " + days + " días)");
-        res.addHeader("ID");
-        res.addHeader("Producto");
-        res.addHeader("Descripción");
-        res.addHeader("Unidad");
-        res.addHeader("Stock Actual");
-        res.addHeader("Último Movimiento");
-        res.addHeader("Días Sin Movimiento");
-
-        PreparedStatement ps = null;
-        ResultSet rs = null;
-        try {
-            ps = Base.connection().prepareStatement(sql);
-            ps.setInt(1, days);
-            rs = ps.executeQuery();
-            while (rs.next()) {
-                List<String> row = new ArrayList<>();
-                row.add(String.valueOf(rs.getInt("id")));
-                row.add(rs.getString("name"));
-                row.add(rs.getString("description"));
-                row.add(rs.getString("unit"));
-                row.add(String.valueOf(rs.getObject("current_stock")));
-                row.add(rs.getString("ultimo_movimiento"));
-                row.add(String.valueOf(rs.getInt("dias_sin_movimiento")));
-                res.addRow(row);
-            }
-        } catch (Exception e) {
-            Logs.error(this.getClass(), "Error ejecutando productsWithoutMovement: {}", e.getMessage());
-            throw new RuntimeException(e);
-        } finally {
-            try { if (rs != null) rs.close(); } catch (Exception ignored) {}
-            try { if (ps != null) ps.close(); } catch (Exception ignored) {}
-        }
-        return res;
+        if (days < 0) throw new IllegalArgumentException("Días no puede ser negativo");
+        Report report = query("Productos sin movimiento válido durante al menos " + days + " días",
+            new String[]{"ID", "Producto", "Descripción", "Unidad", "Stock actual", "Fecha de registro", "Último movimiento válido"},
+            "SELECT p.id, p.name, p.description, p.unit, p.current_stock, p.created_at, MAX(t.date) "
+            + "FROM products p LEFT JOIN transaction_items ti ON ti.product_id=p.id AND ti.status='active' "
+            + "LEFT JOIN transactions t ON t.id=ti.transaction_id AND t.status='active' "
+            + "WHERE p.status != 'deleted' GROUP BY p.id, p.name, p.description, p.unit, p.current_stock, p.created_at ORDER BY p.id DESC");
+        report.addHeader("Días sin movimiento");
+        LocalDate today = LocalDate.now();
+        report.getRows().removeIf(row -> {
+            String last = row.get(6).isBlank() ? row.get(5) : row.get(6);
+            if (last.isBlank()) return true;
+            long elapsed = ChronoUnit.DAYS.between(LocalDate.parse(last.substring(0, 10)), today);
+            row.add(String.valueOf(Math.max(0, elapsed)));
+            if (row.get(6).isBlank()) row.set(6, "Sin movimientos");
+            return elapsed < days;
+        });
+        report.getRows().sort((a,b) -> Long.compare(Long.parseLong(b.get(7)), Long.parseLong(a.get(7))));
+        return report;
     }
 
-    // Reporte de actividad por usuario
+    /** Detalle de transacciones registradas por el usuario; no es la bitácora general de auditoría. */
     public Report userActivity(int userId, String from, String to) {
-        String sql = "SELECT u.username as usuario, u.username, " +
-                     "       DATE(t.created_at) as fecha, " +
-                     "       COUNT(t.id) as total_transacciones, " +
-                     "       SUM(CASE WHEN t.type='in' THEN 1 ELSE 0 END) as ingresos, " +
-                     "       SUM(CASE WHEN t.type='out' THEN 1 ELSE 0 END) as egresos, " +
-                     "       SUM(CASE WHEN t.type='loan' THEN 1 ELSE 0 END) as prestamos " +
-                     "FROM transactions t " +
-                     "JOIN users u ON t.user_id = u.id " +
-                     "WHERE t.user_id = ? AND t.date BETWEEN ? AND ? " +
-                     "GROUP BY DATE(t.created_at) " +
-                     "ORDER BY fecha DESC";
-
-        Report res = new Report("Actividad por Usuario");
-        res.addHeader("Usuario");
-        res.addHeader("Username");
-        res.addHeader("Fecha");
-        res.addHeader("Total Transacciones");
-        res.addHeader("Ingresos");
-        res.addHeader("Egresos");
-        res.addHeader("Préstamos");
-
-        PreparedStatement ps = null;
-        ResultSet rs = null;
-        try {
-            ps = Base.connection().prepareStatement(sql);
-            ps.setInt(1, userId);
-            ps.setString(2, from);
-            ps.setString(3, to);
-            rs = ps.executeQuery();
-            while (rs.next()) {
-                List<String> row = new ArrayList<>();
-                row.add(rs.getString("usuario"));
-                row.add(rs.getString("username"));
-                row.add(rs.getString("fecha"));
-                row.add(String.valueOf(rs.getInt("total_transacciones")));
-                row.add(String.valueOf(rs.getInt("ingresos")));
-                row.add(String.valueOf(rs.getInt("egresos")));
-                row.add(String.valueOf(rs.getInt("prestamos")));
-                res.addRow(row);
-            }
-        } catch (Exception e) {
-            Logs.error(this.getClass(), "Error ejecutando userActivity: {}", e.getMessage());
-            throw new RuntimeException(e);
-        } finally {
-            try { if (rs != null) rs.close(); } catch (Exception ignored) {}
-            try { if (ps != null) ps.close(); } catch (Exception ignored) {}
-        }
-        return res;
+        return userActivity(userId, from, to, null);
     }
 
-    // Dashboard mensual con KPIs
+    public Report userActivity(int userId, String from, String to, String status) {
+        if ((from == null) != (to == null)) throw new IllegalArgumentException("Indique ambas fechas o todas las actividades");
+        Report report = transactionDetails("Actividad detallada del usuario #" + userId
+            + (from == null ? " — todas las fechas" : " — registro " + from + " a " + to),
+            null, from, to, userId, null, status, true);
+        report.setLandscape(true);
+        return report;
+    }
+
     public Report monthlyDashboard(String yearMonth) {
-        String sql = "SELECT " +
-                     "  (SELECT COUNT(*) FROM products) as total_productos, " +
-                     "  (SELECT COUNT(*) FROM products WHERE current_stock <= minimum_stock) as productos_stock_bajo, " +
-                     "  (SELECT COUNT(*) FROM products WHERE current_stock = 0) as productos_sin_stock, " +
-                     "  (SELECT SUM(current_stock) FROM products) as stock_total_sistema, " +
-                     "  (SELECT COUNT(*) FROM transactions WHERE DATE_FORMAT(created_at, '%Y-%m') = ?) as transacciones_mes, " +
-                     "  (SELECT COUNT(*) FROM transactions WHERE type='in' AND DATE_FORMAT(created_at, '%Y-%m') = ?) as ingresos_mes, " +
-                     "  (SELECT COUNT(*) FROM transactions WHERE type='out' AND DATE_FORMAT(created_at, '%Y-%m') = ?) as egresos_mes, " +
-                     "  (SELECT COUNT(*) FROM transactions WHERE type='loan' AND DATE_FORMAT(created_at, '%Y-%m') = ?) as prestamos_mes, " +
-                     "  (SELECT COUNT(DISTINCT user_id) FROM transactions WHERE DATE_FORMAT(created_at, '%Y-%m') = ?) as usuarios_activos, " +
-                     "  (SELECT COUNT(DISTINCT person_id) FROM transactions WHERE person_id IS NOT NULL AND DATE_FORMAT(created_at, '%Y-%m') = ?) as personas_activas, " +
-                     "  (SELECT COUNT(*) FROM people) as total_personas_registradas, " +
-                     "  (SELECT COUNT(*) FROM users WHERE rol_id != 1) as total_usuarios_sistema";
-
-        Report res = new Report("Dashboard Mensual - " + yearMonth);
-        res.addHeader("Métrica");
-        res.addHeader("Valor");
-
-        PreparedStatement ps = null;
-        ResultSet rs = null;
-        try {
-            ps = Base.connection().prepareStatement(sql);
-            ps.setString(1, yearMonth);
-            ps.setString(2, yearMonth);
-            ps.setString(3, yearMonth);
-            ps.setString(4, yearMonth);
-            ps.setString(5, yearMonth);
-            ps.setString(6, yearMonth);
-            rs = ps.executeQuery();
-
-            if (rs.next()) {
-                res.addRow(List.of("Total de Productos en Sistema", String.valueOf(rs.getInt("total_productos"))));
-                res.addRow(List.of("Productos con Stock Bajo", String.valueOf(rs.getInt("productos_stock_bajo"))));
-                res.addRow(List.of("Productos Sin Stock", String.valueOf(rs.getInt("productos_sin_stock"))));
-                res.addRow(List.of("Stock Total en Sistema", String.valueOf(rs.getObject("stock_total_sistema"))));
-                res.addRow(List.of("--- TRANSACCIONES DEL MES ---", "---"));
-                res.addRow(List.of("Total Transacciones", String.valueOf(rs.getInt("transacciones_mes"))));
-                res.addRow(List.of("Ingresos", String.valueOf(rs.getInt("ingresos_mes"))));
-                res.addRow(List.of("Egresos", String.valueOf(rs.getInt("egresos_mes"))));
-                res.addRow(List.of("Préstamos", String.valueOf(rs.getInt("prestamos_mes"))));
-                res.addRow(List.of("--- ACTIVIDAD DEL MES ---", "---"));
-                res.addRow(List.of("Usuarios Activos", String.valueOf(rs.getInt("usuarios_activos"))));
-                res.addRow(List.of("Personas con Movimientos", String.valueOf(rs.getInt("personas_activas"))));
-                res.addRow(List.of("--- RESUMEN GENERAL ---", "---"));
-                res.addRow(List.of("Total Personas Registradas", String.valueOf(rs.getInt("total_personas_registradas"))));
-                res.addRow(List.of("Total Usuarios del Sistema", String.valueOf(rs.getInt("total_usuarios_sistema"))));
-            }
-        } catch (Exception e) {
-            Logs.error(this.getClass(), "Error ejecutando monthlyDashboard: {}", e.getMessage());
-            throw new RuntimeException(e);
-        } finally {
-            try { if (rs != null) rs.close(); } catch (Exception ignored) {}
-            try { if (ps != null) ps.close(); } catch (Exception ignored) {}
+        YearMonth month = YearMonth.parse(yearMonth);
+        Report report = query("Resumen mensual " + month + " — actividad por fecha de operación",
+            new String[]{"Tipo", "Estado", "Transacciones"},
+            "SELECT type, status, COUNT(*) FROM transactions WHERE date BETWEEN ? AND ? GROUP BY type, status ORDER BY type, status",
+            month.atDay(1).toString(), month.atEndOfMonth().toString());
+        Report result = new Report(report.getTitle());
+        result.addHeader("Sección"); result.addHeader("Métrica"); result.addHeader("Valor");
+        long total = 0;
+        for (List<String> row : report.getRows()) {
+            String type = row.get(0).equals("in") ? "Ingresos" : row.get(0).equals("out") ? "Egresos" : "Préstamos";
+            String state = row.get(1).equals("active") ? "Activos" : row.get(1).equals("invalidated") ? "Invalidados" : "Cancelados";
+            result.addRow(List.of("Actividad de " + month, type + " — " + state, row.get(2)));
+            total += Long.parseLong(row.get(2));
         }
-        return res;
+        result.addRow(List.of("Actividad de " + month, "Total de transacciones registradas", String.valueOf(total)));
+        Report products = inventoryComplete();
+        result.addRow(List.of("Existencias actuales al " + LocalDate.now(), "Productos no eliminados", String.valueOf(products.getRows().size())));
+        for (StockLevel level : StockLevel.values()) {
+            long count = products.getRows().stream().filter(row -> row.get(products.getHeaders().indexOf("Nivel de stock")).equals(level.getLabel())).count();
+            result.addRow(List.of("Existencias actuales", level.getLabel(), String.valueOf(count)));
+        }
+        Report stocks = query("Existencias por unidad", new String[]{"Unidad", "Stock"},
+            "SELECT unit, COALESCE(SUM(current_stock),0) FROM products WHERE status != 'deleted' GROUP BY unit ORDER BY unit");
+        for (List<String> row : stocks.getRows()) result.addRow(List.of("Existencias actuales", "Stock total (" + row.get(0) + ")", row.get(1)));
+        Report activity = query("Actividad", new String[]{"Usuarios", "Personas"},
+            "SELECT COUNT(DISTINCT user_id), COUNT(DISTINCT person_id) FROM transactions WHERE status='active' AND date BETWEEN ? AND ?",
+            month.atDay(1).toString(), month.atEndOfMonth().toString());
+        result.addRow(List.of("Actividad vigente de " + month, "Usuarios con operaciones", activity.getRows().get(0).get(0)));
+        result.addRow(List.of("Actividad vigente de " + month, "Personas con operaciones", activity.getRows().get(0).get(1)));
+        Report totals = query("Totales actuales", new String[]{"Personas", "Usuarios"},
+            "SELECT (SELECT COUNT(*) FROM people WHERE status != 'deleted'), (SELECT COUNT(*) FROM users WHERE status != 'deleted' AND rol_id != 1)");
+        result.addRow(List.of("Registros actuales", "Personas no eliminadas", totals.getRows().get(0).get(0)));
+        result.addRow(List.of("Registros actuales", "Usuarios no eliminados (sin ROOT)", totals.getRows().get(0).get(1)));
+        return result;
     }
 }
-
-

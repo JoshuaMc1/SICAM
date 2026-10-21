@@ -144,7 +144,7 @@ public class MigrationRunner {
                 return;
             }
 
-            String[] statements = sql.split(";\n|;\r\n|;\r|;\t|; ");
+            List<String> statements = splitSqlStatements(sql);
             for (String rawStatement : statements) {
                 String statement = rawStatement.trim();
                 if (statement.isEmpty()) continue;
@@ -171,6 +171,50 @@ public class MigrationRunner {
             Logs.error(MigrationRunner.class, "Error ejecutando migración {}: {}", filename, e.getMessage());
             throw new RuntimeException("Error ejecutando migración: " + filename, e);
         }
+    }
+
+    /** Separa sentencias sin interpretar como SQL los comentarios ni cortar textos entre comillas. */
+    private static List<String> splitSqlStatements(String sql) {
+        List<String> statements = new ArrayList<>();
+        StringBuilder current = new StringBuilder();
+        char quote = 0;
+        boolean lineComment = false;
+        boolean blockComment = false;
+        for (int i = 0; i < sql.length(); i++) {
+            char c = sql.charAt(i);
+            char next = i + 1 < sql.length() ? sql.charAt(i + 1) : 0;
+            if (lineComment) {
+                if (c == '\n' || c == '\r') { lineComment = false; current.append(' '); }
+            } else if (blockComment) {
+                if (c == '*' && next == '/') { blockComment = false; i++; current.append(' '); }
+            } else if (quote != 0) {
+                current.append(c);
+                if (c == '\\' && next != 0) { current.append(next); i++; }
+                else if (c == quote) {
+                    if (next == quote) { current.append(next); i++; }
+                    else quote = 0;
+                }
+            } else if (c == '#' || (c == '-' && next == '-' &&
+                    (i + 2 == sql.length() || Character.isWhitespace(sql.charAt(i + 2))))) {
+                lineComment = true;
+                current.append(' ');
+            } else if (c == '/' && next == '*') {
+                blockComment = true;
+                current.append(' ');
+                i++;
+            } else if (c == '\'' || c == '"' || c == '`') {
+                quote = c;
+                current.append(c);
+            } else if (c == ';') {
+                if (!current.toString().isBlank()) statements.add(current.toString().trim());
+                current.setLength(0);
+            } else {
+                current.append(c);
+            }
+        }
+        if (quote != 0 || blockComment) throw new IllegalArgumentException("SQL con comillas o comentario sin cerrar");
+        if (!current.toString().isBlank()) statements.add(current.toString().trim());
+        return statements;
     }
 
     private static String truncate(@NotNull String s) {

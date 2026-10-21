@@ -15,7 +15,9 @@ public class Roles {
     public enum Role {
         ROOT("root", "Root (Acceso Total)"),
         ADMIN("admin", "Administrador"),
-        OPERATOR("operator", "Operador"),
+        OPERATOR("operador", "Operador"),
+        SUPERVISOR("supervisor", "Supervisor"),
+        CONSULTOR("consultor", "Consultor"),
         AUDITOR("auditor", "Auditor"),
         GUEST("guest", "Invitado");
 
@@ -37,7 +39,7 @@ public class Roles {
 
         public static Role fromCode(String code) {
             for (Role role : values()) {
-                if (role.code.equals(code)) {
+                if (role.code.equalsIgnoreCase(code) || (role == OPERATOR && "operator".equalsIgnoreCase(code))) {
                     return role;
                 }
             }
@@ -51,7 +53,7 @@ public class Roles {
     @Contract(pure = true)
     public static @NotNull String getRoleFullName(@NotNull String role) {
         Role r = Role.fromCode(role);
-        return r != null ? r.getDisplayName() : "Desconocido";
+        return r != null ? r.getDisplayName() : role;
     }
 
     /**

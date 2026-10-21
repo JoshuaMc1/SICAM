@@ -5,11 +5,19 @@ import org.jetbrains.annotations.Nullable;
 
 public final class Session {
     private static volatile User currentUser = null;
+    private static final java.util.concurrent.atomic.AtomicLong revision = new java.util.concurrent.atomic.AtomicLong();
 
     private Session() {}
 
-    public static void setCurrentUser(User user) {
-        currentUser = user;
+    public static synchronized void setCurrentUser(User user) {
+        if (currentUser != user) {
+            revision.incrementAndGet();
+            currentUser = user;
+        }
+    }
+
+    public static long getRevision() {
+        return revision.get();
     }
 
     public static User getCurrentUser() {

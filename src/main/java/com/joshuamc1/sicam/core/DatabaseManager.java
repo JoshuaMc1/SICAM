@@ -77,4 +77,41 @@ public class DatabaseManager {
             }
         }
     }
+    /** Conserva la conexión y usa un savepoint si el llamador ya posee una transacción. */
+    public static <T> T callInTransaction(Supplier<T> operation) {
+        return callInConnection(() -> {
+            java.sql.Connection connection = Base.connection();
+            boolean owner;
+            java.sql.Savepoint savepoint;
+            try {
+                owner = connection.getAutoCommit();
+                if (owner) { connection.setAutoCommit(false); savepoint = null; }
+                else savepoint = connection.setSavepoint();
+            } catch (java.sql.SQLException ex) {
+                throw new IllegalStateException("No se pudo iniciar la operación", ex);
+            }
+            Throwable failure = null;
+            try {
+                T result = operation.get();
+                if (owner) connection.commit();
+                else connection.releaseSavepoint(savepoint);
+                return result;
+            } catch (RuntimeException | Error | java.sql.SQLException ex) {
+                failure = ex;
+                try {
+                    if (owner) connection.rollback();
+                    else { connection.rollback(savepoint); connection.releaseSavepoint(savepoint); }
+                } catch (java.sql.SQLException rollback) { ex.addSuppressed(rollback); }
+                if (ex instanceof RuntimeException) throw (RuntimeException) ex;
+                if (ex instanceof Error) throw (Error) ex;
+                throw new IllegalStateException("No se pudo guardar la operación", ex);
+            } finally {
+                if (owner) try { connection.setAutoCommit(true); }
+                catch (java.sql.SQLException cleanup) {
+                    if (failure != null) failure.addSuppressed(cleanup);
+                    else throw new IllegalStateException("No se pudo restablecer la conexión", cleanup);
+                }
+            }
+        });
+    }
 }

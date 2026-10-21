@@ -54,7 +54,26 @@ public class MainController {
     @FXML private Button btnLogout;
 
     private final AtomicBoolean loading = new AtomicBoolean(false);
+    private final User sessionOwner = Session.getCurrentUser();
+    private final long sessionRevision = Session.getRevision();
+    private boolean closed;
+    private Object currentController;
     private final AuditService auditService = new AuditService();
+
+    private String initialView() {
+        String[][] views = {
+            {"DASHBOARD", "home"}, {"INVENTARIO", "inventory"}, {"INGRESOS", "incomes"},
+            {"EGRESOS", "outcomes"}, {"PRESTAMOS", "loans"}, {"PERSONAS", "people"},
+            {"AUDITORIA", "audit"}, {"USUARIOS", "users"}, {"REPORTES", "reports"},
+            {"BACKUP", "backup"}, {"ROLES", "roles"}
+        };
+        for (String[] view : views) {
+            if (PermissionHelper.canAccess(view[0], "READ")) {
+                return "/fxml/dashboard/" + view[1] + ".fxml";
+            }
+        }
+        return "/fxml/dashboard/profile.fxml";
+    }
 
     @FXML
     public void initialize() {
@@ -73,7 +92,7 @@ public class MainController {
             imgLogo.setImage(logo);
         });
 
-        loadView("/fxml/dashboard/home.fxml");
+        loadView(initialView());
 
         btnDashboard.setOnAction(e -> {
             if (loading.get()) {
@@ -400,6 +419,7 @@ public class MainController {
     }
 
     private void logout() {
+        if (closed) return;
         try {
             FXMLLoader loader = new FXMLLoader(getClass().getResource("/fxml/login.fxml"));
             Scene scene = new Scene(loader.load());
@@ -410,18 +430,16 @@ public class MainController {
             stage.getIcons().add(new Image(Objects.requireNonNull(getClass().getResourceAsStream("/images/logo.png"))));
             stage.show();
 
-            auditService.logAction(
-                    Session.getCurrentUserId(),
-                    "logout",
-                    "users",
-                    Session.getCurrentUserId(),
-                    String.format("user_id=%d,username=%s",
-                            Session.getCurrentUserId(),
-                            Session.getCurrentUsername()
-                    )
-            );
-
-            Session.setCurrentUser(null);
+            shutdown();
+            try {
+                auditService.logAction(
+                    Session.getCurrentUserId(), "logout", "users", Session.getCurrentUserId(),
+                    "user_id=" + Session.getCurrentUserId() + ",username=" + Session.getCurrentUsername());
+            } catch (RuntimeException ex) {
+                Logs.error(getClass(), "No se pudo registrar el cierre de sesión en Auditoría", ex);
+            } finally {
+                Session.setCurrentUser(null);
+            }
 
             Stage current = (Stage) btnLogout.getScene().getWindow();
             current.close();
@@ -439,6 +457,11 @@ public class MainController {
 
         // Agregar estilos CSS si la escena está disponible
         Platform.runLater(() -> {
+            if (closed) return;
+            if (btnLogout.getScene() != null && btnLogout.getScene().getWindow() != null) {
+                btnLogout.getScene().getWindow().addEventHandler(javafx.stage.WindowEvent.WINDOW_HIDDEN, event -> shutdown());
+            }
+
             if (contentArea != null && contentArea.getScene() != null) {
                 String cssPath = Objects.requireNonNull(
                     getClass().getResource("/css/dashboard.css")
@@ -535,75 +558,65 @@ public class MainController {
         }
     }
 
-    private void loadView(String fxmlPath) {
-        if (!loading.compareAndSet(false, true)) {
-            Logs.info(this.getClass(), "loadView skipped because another load is in progress: {}", fxmlPath);
-            return;
-        }
+    public void shutdown() {
+        closed = true;
+        closeCurrentView();
+        loading.set(false);
+    }
 
+    private void closeCurrentView() {
+        Object controller = currentController;
+        currentController = null;
+        if (controller instanceof HomeController) ((HomeController) controller).shutdown();
+    }
+
+    private boolean isSessionCurrent() {
+        return !closed && sessionOwner != null && Session.getCurrentUser() == sessionOwner
+            && Session.getRevision() == sessionRevision;
+    }
+
+    private boolean canDisplayView(Object controller) {
+        return isSessionCurrent() && currentController == controller;
+    }
+
+    private void loadView(String fxmlPath) {
+        if (!isSessionCurrent() || !loading.compareAndSet(false, true)) return;
+        closeCurrentView();
         try {
             StackPane placeholder = new StackPane(new ProgressIndicator());
             placeholder.setStyle("-fx-alignment: center; -fx-padding: 20;");
             contentArea.getChildren().setAll(placeholder);
-
             FXMLLoader loader = new FXMLLoader(getClass().getResource(fxmlPath));
             Node view = loader.load();
-
             Object controller = loader.getController();
-
+            currentController = controller;
+            AtomicBoolean displayed = new AtomicBoolean(false);
+            Runnable showView = () -> {
+                if (!canDisplayView(controller) || !displayed.compareAndSet(false, true)) return;
+                contentArea.getChildren().setAll(view);
+                FadeTransition fade = new FadeTransition(Duration.millis(300), view);
+                fade.setFromValue(0); fade.setToValue(1); fade.play();
+                btnDashboard.setDisable(false);
+                btnInventory.setDisable(false);
+                loading.set(false);
+                Logs.info(getClass(), "Vista cargada: {}", fxmlPath);
+            };
             if (controller instanceof AsyncLoadable) {
                 AsyncLoadable async = (AsyncLoadable) controller;
-
                 btnDashboard.setDisable(true);
                 btnInventory.setDisable(true);
-
-                async.setOnLoaded(() -> {
-                    Platform.runLater(() -> {
-                        contentArea.getChildren().setAll(view);
-                        FadeTransition fade = new FadeTransition(Duration.millis(300), view);
-                        fade.setFromValue(0);
-                        fade.setToValue(1);
-                        fade.play();
-
-                        btnDashboard.setDisable(false);
-                        btnInventory.setDisable(false);
-                        loading.set(false);
-                        Logs.info(this.getClass(), "Async view loaded and displayed: {}", fxmlPath);
-                    });
-                });
-
-                if (!async.isLoading()) {
-                    Platform.runLater(() -> {
-                        contentArea.getChildren().setAll(view);
-                        FadeTransition fade = new FadeTransition(Duration.millis(300), view);
-                        fade.setFromValue(0);
-                        fade.setToValue(1);
-                        fade.play();
-
-                        btnDashboard.setDisable(false);
-                        btnInventory.setDisable(false);
-                        loading.set(false);
-                    });
-                }
-            } else {
-                contentArea.getChildren().setAll(view);
-
-                FadeTransition fade = new FadeTransition(Duration.millis(300), view);
-                fade.setFromValue(0);
-                fade.setToValue(1);
-                fade.play();
-
-                loading.set(false);
-                Logs.info(this.getClass(), "Loaded view: {}", fxmlPath);
-            }
-        } catch (Throwable e) {
-            Logs.error(this.getClass(), "Error cargando vista {}: {}", fxmlPath, e.getMessage());
-            Utils.showAlert("Error", "No se pudo cargar la vista: " + fxmlPath + "\n" + e.getMessage());
-            e.printStackTrace();
-            Logs.trace(this.getClass(), e.getMessage(), e);
+                async.setOnLoaded(() -> Platform.runLater(showView));
+                if (!async.isLoading()) Platform.runLater(showView);
+            } else showView.run();
+        } catch (Throwable error) {
+            closeCurrentView();
             loading.set(false);
-            btnDashboard.setDisable(false);
-            btnInventory.setDisable(false);
+            Logs.error(getClass(), "Error cargando vista " + fxmlPath, error);
+            if (isSessionCurrent()) {
+                Utils.showAlert("Error", "No se pudo cargar la pantalla. Intente nuevamente.");
+                btnDashboard.setDisable(false);
+                btnInventory.setDisable(false);
+            }
         }
     }
 }

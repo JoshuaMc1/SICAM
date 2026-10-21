@@ -31,7 +31,7 @@ import java.util.Optional;
 public class BackupController {
 
     @FXML private TableView<Backup> tblBackups;
-    @FXML private TableColumn<Backup, String> colId;
+    @FXML private TableColumn<Backup, Integer> colId;
     @FXML private TableColumn<Backup, String> colFilename;
     @FXML private TableColumn<Backup, String> colSize;
     @FXML private TableColumn<Backup, String> colUsuario;
@@ -54,6 +54,8 @@ public class BackupController {
     private final BackupService backupService = new BackupService();
     private final ObservableList<Backup> currentPageItems = FXCollections.observableArrayList();
 
+    private com.joshuamc1.sicam.core.PagedTableSupport<Backup> pageOrder;
+    private long loadRevision;
     private int currentPage = 1;
     private int pageSize = 25;
     private int totalItems = 0;
@@ -91,7 +93,7 @@ public class BackupController {
 
     private void configureTable() {
         colId.setCellValueFactory(data ->
-            new SimpleStringProperty(String.valueOf(data.getValue().getInteger("id"))));
+            new javafx.beans.property.SimpleObjectProperty<>(data.getValue().getInteger("id")));
 
         colFilename.setCellValueFactory(data ->
             new SimpleStringProperty(data.getValue().getString("filename")));
@@ -155,6 +157,7 @@ public class BackupController {
         colStatus.setStyle("-fx-font-size: 17;");
 
         tblBackups.setItems(currentPageItems);
+        pageOrder = new com.joshuamc1.sicam.core.PagedTableSupport<>(tblBackups, () -> loadPage(1));
     }
 
     private void configurePagination() {
@@ -328,6 +331,7 @@ public class BackupController {
 
     @FXML
     public void onOpenFolder() {
+        if (!PermissionHelper.validateAndShow("BACKUP","READ")) return;
         try {
             Path backupDir = backupService.getBackupDirectory();
             if (Files.exists(backupDir)) {
@@ -518,25 +522,31 @@ public class BackupController {
     }
 
     private void loadPage(int page) {
+        final long revision = ++loadRevision;
+        final int requestedSize = pageSize;
+        final var sort = pageOrder.sqlOrder(java.util.Map.of(
+            colId, "id", colFilename, "filename", colSize, "size", colUsuario, "user",
+            colMensaje, "message", colFecha, "date", colStatus, "status"));
         new Thread(() -> {
-            com.joshuamc1.sicam.config.DatabaseConfig.openConnection();
             try {
-                int offset = (page - 1) * pageSize;
-                List<Backup> items = backupService.listBackupsPaged(offset, pageSize);
+                com.joshuamc1.sicam.config.DatabaseConfig.openConnection();
                 long count = backupService.countBackups();
-
+                int pages = Math.max(1, (int) Math.ceil(count / (double) requestedSize));
+                int pageToLoad = Math.min(Math.max(1, page), pages);
+                List<Backup> items = backupService.listBackupsPaged((pageToLoad - 1) * requestedSize, requestedSize, sort);
                 Platform.runLater(() -> {
+                    if (revision != loadRevision) return;
                     totalItems = (int) count;
-                    totalPages = Math.max(1, (int) Math.ceil(totalItems / (double) pageSize));
-                    currentPage = Math.min(Math.max(1, page), totalPages);
-
-                    currentPageItems.setAll(items != null ? items : java.util.List.of());
+                    totalPages = pages;
+                    currentPage = pageToLoad;
+                    pageOrder.publish(currentPageItems, items);
                     updatePaginationControls();
                 });
             } catch (Exception e) {
                 Logs.error(getClass(), "Error cargando backups", e);
-                Platform.runLater(() ->
-                    Utils.showAlert("Error", "No se pudieron cargar los backups: " + e.getMessage()));
+                Platform.runLater(() -> {
+                    if (revision == loadRevision) Utils.showAlert("Error", "No se pudieron cargar los backups: " + e.getMessage());
+                });
             } finally {
                 com.joshuamc1.sicam.config.DatabaseConfig.closeConnection();
             }

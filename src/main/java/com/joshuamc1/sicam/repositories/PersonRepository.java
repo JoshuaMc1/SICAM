@@ -30,14 +30,14 @@ public class PersonRepository {
      */
     public List<Person> findAll() {
         return Person.where("status != ?", Person.STATUS_DELETED)
-            .orderBy("first_name, last_name");
+            .orderBy("id DESC");
     }
 
     /**
      * Lista todas las personas incluyendo eliminadas
      */
     public List<Person> findAllIncludingDeleted() {
-        return Person.findAll().orderBy("first_name, last_name");
+        return Person.findAll().orderBy("id DESC");
     }
 
     /**
@@ -45,7 +45,7 @@ public class PersonRepository {
      */
     public List<Person> findDeleted() {
         return Person.where("status = ?", Person.STATUS_DELETED)
-            .orderBy("deleted_at DESC");
+            .orderBy("id DESC");
     }
 
     /**
@@ -53,7 +53,7 @@ public class PersonRepository {
      */
     public List<Person> findActive() {
         return Person.where("status = ?", Person.STATUS_ACTIVE)
-            .orderBy("first_name, last_name");
+            .orderBy("id DESC");
     }
 
     /**
@@ -61,7 +61,7 @@ public class PersonRepository {
      */
     public List<Person> findInactive() {
         return Person.where("status = ?", Person.STATUS_INACTIVE)
-            .orderBy("first_name, last_name");
+            .orderBy("id DESC");
     }
 
     public Person create(String dni, String firstName, String lastName, String phone, String internalCode) {
@@ -104,11 +104,11 @@ public class PersonRepository {
                 "(dni LIKE ? OR first_name LIKE ? OR last_name LIKE ? OR internal_code LIKE ?) AND status != ?",
                 "%" + search + "%", "%" + search + "%", "%" + search + "%", "%" + search + "%",
                 Person.STATUS_DELETED
-            ).orderBy("created_at DESC").offset(offset).limit(limit);
+            ).orderBy("id DESC").offset(offset).limit(limit);
             return list;
         } else {
             return Person.where("status != ?", Person.STATUS_DELETED)
-                .orderBy("created_at DESC")
+                .orderBy("id DESC")
                 .offset(offset)
                 .limit(limit);
         }

@@ -5,7 +5,6 @@ import org.javalite.activejdbc.annotations.HasMany;
 import org.javalite.activejdbc.annotations.Table;
 
 import java.sql.Timestamp;
-import java.util.Date;
 import java.util.List;
 
 /**
@@ -160,25 +159,10 @@ public class Transaction extends Model {
      * @return true si está vencido
      */
     public boolean isLoanOverdue() {
-        if (!isLoan()) {
-            return false;
-        }
-
-        String loanStatus = this.getString("loan_status");
-
-        // Si ya está marcado como vencido, retornar true
-        if (LOAN_STATUS_OVERDUE.equals(loanStatus)) {
-            return true;
-        }
-
-        // Si está pendiente, verificar la fecha
-        if (LOAN_STATUS_PENDING.equals(loanStatus)) {
-            Date expectedReturn = this.getDate("expected_return_date");
-            if (expectedReturn == null) return false;
-            return expectedReturn.before(new Date());
-        }
-
-        return false;
+        if (!isLoan() || !isActive()) return false;
+        java.sql.Date expectedReturn = getDate("expected_return_date");
+        return com.joshuamc1.sicam.utils.LoanDueDate.isOverdue(getString("loan_status"),
+            expectedReturn == null ? null : expectedReturn.toLocalDate(), java.time.LocalDate.now());
     }
 
     /**
@@ -189,9 +173,9 @@ public class Transaction extends Model {
      * @param notes notas sobre la devolución
      */
     public void markAsReturned(Integer returnTransactionId, String returnType,
-                              Date returnDate, String notes) {
+                              java.time.LocalDate returnDate, String notes) {
         this.set("loan_status", getStatusForReturnType(returnType));
-        this.set("actual_return_date", returnDate);
+        this.set("actual_return_date", returnDate.toString());
         this.set("related_transaction_id", returnTransactionId);
         this.set("return_type", returnType);
         this.set("return_notes", notes);

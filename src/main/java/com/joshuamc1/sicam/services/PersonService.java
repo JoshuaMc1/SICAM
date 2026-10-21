@@ -53,43 +53,37 @@ public class PersonService {
         });
     }
 
+    @Deprecated
     public boolean delete(Integer id) {
-        // Validación de permisos
-        if (!PermissionHelper.canAccess("PERSONAS", "DELETE")) {
-            throw new IllegalStateException("Acceso denegado: no tiene permiso para eliminar personas");
-        }
-        return DatabaseManager.callInConnection(() -> {
-            boolean ok = repo.delete(id);
-            if (ok) {
-                auditService.logAction(
-                    Session.getCurrentUserId(),
-                    "delete_person",
-                    "people",
-                    id,
-                    "person_id=" + id
-                );
-            }
-            return ok;
-        });
+        com.joshuamc1.sicam.core.Authorization.require("PERSONAS","DELETE");
+        Person person=findById(id);
+        if(person==null) return false;
+        softDelete(person);
+        return true;
     }
 
     public Person findById(Integer id) {
+        com.joshuamc1.sicam.core.Authorization.require("PERSONAS","READ");
         return DatabaseManager.callInConnection(() -> repo.findById(id));
     }
 
     public Person findByDni(String dni) {
+        com.joshuamc1.sicam.core.Authorization.require("PERSONAS","READ");
         return DatabaseManager.callInConnection(() -> repo.findByDni(dni));
     }
 
     public long count() {
+        com.joshuamc1.sicam.core.Authorization.require("PERSONAS","READ");
         return DatabaseManager.callInConnection(repo::count);
     }
 
     public List<Person> listPaged(int offset, int limit, String search) {
+        com.joshuamc1.sicam.core.Authorization.require("PERSONAS","READ");
         return DatabaseManager.callInConnection(() -> repo.listPaged(offset, limit, search));
     }
 
     public List<Person> findAll() {
+        com.joshuamc1.sicam.core.Authorization.require("PERSONAS","READ");
         return DatabaseManager.callInConnection(repo::findAll);
     }
 
@@ -100,6 +94,7 @@ public class PersonService {
      * @return Lista limitada de personas
      */
     public List<Person> searchPeople(String query, int limit) {
+        com.joshuamc1.sicam.core.Authorization.require("PERSONAS","READ");
         return DatabaseManager.callInConnection(() -> repo.searchPeople(query, limit));
     }
 
@@ -109,6 +104,7 @@ public class PersonService {
      * @return true si existe, false si no existe
      */
     public boolean existsByDni(String dni) {
+        com.joshuamc1.sicam.core.Authorization.requireAny("PERSONAS","READ","CREATE","UPDATE");
         return DatabaseManager.callInConnection(() -> {
             Person person = repo.findByDni(dni);
             return person != null;
@@ -121,6 +117,7 @@ public class PersonService {
      * @return el ID de la persona o null si no existe
      */
     public Integer getIdByDni(String dni) {
+        com.joshuamc1.sicam.core.Authorization.requireAny("PERSONAS","READ","CREATE","UPDATE");
         return DatabaseManager.callInConnection(() -> {
             Person person = repo.findByDni(dni);
             return person != null ? person.getInteger("id") : null;
@@ -224,6 +221,7 @@ public class PersonService {
      * Marca persona como activa
      */
     public void markAsActive(Person person) {
+        if (person.isDeleted()) throw new SecurityException("Los eliminados deben recuperarse mediante RESTORE");
         Integer currentUserId = Session.getCurrentUserId();
         Integer id = person.getInteger("id");
 

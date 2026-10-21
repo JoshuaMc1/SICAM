@@ -17,7 +17,6 @@ import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.PDPage;
 import org.apache.pdfbox.pdmodel.PDPageContentStream;
 import org.apache.pdfbox.pdmodel.common.PDRectangle;
-import org.apache.pdfbox.pdmodel.font.PDType1Font;
 import org.apache.pdfbox.pdmodel.font.PDType0Font;
 import org.apache.pdfbox.pdmodel.font.PDFont;
 
@@ -31,13 +30,12 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 import javafx.concurrent.Task;
 import javafx.scene.layout.VBox;
 import javafx.application.Platform;
-import java.util.logging.Logger;
-import java.util.logging.Level;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class ReportsController {
@@ -87,10 +85,36 @@ public class ReportsController {
     @FXML private Button btnMonthlyDashboardCsv;
     @FXML private Button btnMonthlyDashboardPdf;
 
+    @FXML private ChoiceBox<String> transactionStatusFilter;
+    @FXML private ChoiceBox<String> stockLevelFilter;
+    @FXML private CheckBox includeDeleted;
+
+    private String selectedTransactionStatus() {
+        String value = transactionStatusFilter.getValue();
+        return "Activas".equals(value) ? "active" : "Invalidadas".equals(value) ? "invalidated"
+            : "Canceladas".equals(value) ? "cancelled" : null;
+    }
+
+    private com.joshuamc1.sicam.core.enums.StockLevel selectedStockLevel() {
+        for (com.joshuamc1.sicam.core.enums.StockLevel level : com.joshuamc1.sicam.core.enums.StockLevel.values()) {
+            if (level.getLabel().equals(stockLevelFilter.getValue())) return level;
+        }
+        return null;
+    }
+
     private final ReportService reportService = new ReportService();
 
     @FXML
     public void initialize() {
+        boolean canViewDeleted = com.joshuamc1.sicam.core.PermissionHelper.canAccess("SISTEMA","VIEW_DELETED");
+        transactionStatusFilter.getItems().setAll(canViewDeleted ? java.util.List.of("Todas","Activas","Invalidadas","Canceladas") : java.util.List.of("Activas"));
+        transactionStatusFilter.setValue(canViewDeleted ? "Todas" : "Activas");
+        com.joshuamc1.sicam.core.PermissionHelper.configureVisibleAction(includeDeleted,canViewDeleted);
+        stockLevelFilter.getItems().add("Todos");
+        for (com.joshuamc1.sicam.core.enums.StockLevel level : com.joshuamc1.sicam.core.enums.StockLevel.values()) {
+            stockLevelFilter.getItems().add(level.getLabel());
+        }
+        stockLevelFilter.setValue("Todos");
         // Reportes de Usuarios sin Root
         btnUsersNoRootCsv.setOnAction(e -> exportUsersExcludingRootCsv());
         btnUsersNoRootPdf.setOnAction(e -> exportUsersExcludingRootPdf());
@@ -152,15 +176,44 @@ public class ReportsController {
     }
 
     private void configurePermissions() {
-        com.joshuamc1.sicam.core.Logs.info(getClass(), "Configurando permisos de reportes para: {}",
-            com.joshuamc1.sicam.core.Session.getCurrentUser().getString("username"));
+        for (java.lang.reflect.Field field : getClass().getDeclaredFields()) {
+            if (field.getType() != Button.class) continue;
+            try {
+                Button button = (Button) field.get(this);
+                String name=field.getName();
+                if (button != null) com.joshuamc1.sicam.core.PermissionHelper.configureVisibleAction(button,canExportReport(name));
+            } catch (IllegalAccessException e) { throw new IllegalStateException(e); }
+        }
+    }
 
-        // Todos los botones de reportes requieren REPORTES.READ
-        // Los reportes se generan si tiene el permiso READ del módulo correspondiente
-        // Por simplicidad, mostramos todos los botones si tiene REPORTES.READ
-        // Las validaciones específicas se harán en cada método
+    private boolean canExportReport(String name) {
+        var auth = new java.util.ArrayList<String>();
+        auth.add("REPORTES.READ"); auth.add("REPORTES.GENERATE"); auth.add("REPORTES.EXPORT");
+        if (name.contains("Users") || name.contains("UserActivity") || name.contains("ByUser")) auth.add("USUARIOS.READ");
+        if (name.contains("PeopleWithLoans")) { auth.add("PERSONAS.READ"); auth.add("PRESTAMOS.READ"); }
+        if (name.contains("ByPerson") || name.contains("UserActivity")) auth.add("PERSONAS.READ");
+        if (name.contains("Dashboard")) auth.add("DASHBOARD.READ");
+        if (name.contains("Inventory") || name.contains("Products") || name.contains("Movements") || name.contains("Consumption")) auth.add("INVENTARIO.READ");
+        if (name.contains("Consumption")) auth.add("EGRESOS.READ");
+        if (name.contains("Movements") || name.contains("MostMoved") || name.contains("NoMovement") || name.contains("UserActivity")
+                || (name.contains("Transactions") && !name.contains("ByType"))) {
+            auth.add("INGRESOS.READ");auth.add("EGRESOS.READ");auth.add("PRESTAMOS.READ");
+        }
+        if (name.contains("ByType") && !com.joshuamc1.sicam.core.PermissionHelper.canAccess("INGRESOS","READ")
+            && !com.joshuamc1.sicam.core.PermissionHelper.canAccess("EGRESOS","READ")
+            && !com.joshuamc1.sicam.core.PermissionHelper.canAccess("PRESTAMOS","READ")) return false;
+        for(String permission:auth) {
+            String[] parts=permission.split("\\.");
+            if(!com.joshuamc1.sicam.core.PermissionHelper.canAccess(parts[0],parts[1])) return false;
+        }
+        return true;
+    }
 
-        com.joshuamc1.sicam.core.Logs.info(getClass(), "Permisos de reportes configurados - Validación granular por tipo de reporte");
+    private boolean validateExport(String buttonName) {
+        if (canExportReport(buttonName)) return true;
+        configurePermissions();
+        com.joshuamc1.sicam.core.PermissionHelper.showAccessDenied("REPORTES","EXPORT");
+        return false;
     }
 
     /**
@@ -187,11 +240,12 @@ public class ReportsController {
     // ==================== USUARIOS SIN ROOT ====================
 
     private void exportUsersExcludingRootCsv() {
+        if (!validateExport("btnUsersNoRootCsv")) return;
         // Validar permisos de reportes y usuarios
         if (!validateReportPermission("USUARIOS")) return;
 
         try {
-            Report report = reportService.usersExcludingRoot();
+            Report report = reportService.usersReport(false, includeDeleted.isSelected());
             FileChooser fc = new FileChooser();
             fc.setTitle("Exportar Usuarios - CSV");
             fc.setInitialFileName("usuarios_" + getTimestamp() + ".csv");
@@ -208,11 +262,12 @@ public class ReportsController {
     }
 
     private void exportUsersExcludingRootPdf() {
+        if (!validateExport("btnUsersNoRootPdf")) return;
         // Validar permisos de reportes y usuarios
         if (!validateReportPermission("USUARIOS")) return;
 
         try {
-            Report report = reportService.usersExcludingRoot();
+            Report report = reportService.usersReport(false, includeDeleted.isSelected());
             FileChooser fc = new FileChooser();
             fc.setTitle("Exportar Usuarios - PDF");
             fc.setInitialFileName("usuarios_" + getTimestamp() + ".pdf");
@@ -220,7 +275,7 @@ public class ReportsController {
             File f = fc.showSaveDialog(btnUsersNoRootPdf.getScene().getWindow());
             if (f == null) return;
 
-            String description = "Lista completa de todos los usuarios del sistema.";
+            String description = "Usuarios del sistema, excluyendo las cuentas SYSTEM y las cuentas con rol ROOT.";
             exportToPdfAsync(report, f, description);
         } catch (Exception ex) {
             Logs.error(getClass(), "Error exportando usuarios sin root a PDF", ex);
@@ -231,8 +286,9 @@ public class ReportsController {
     // ==================== USUARIOS AGRUPADOS POR ROL ====================
 
     private void exportUsersGroupedCsv() {
+        if (!validateExport("btnUsersGroupedCsv")) return;
         try {
-            Report report = reportService.usersGroupedByRole();
+            Report report = reportService.usersReport(true, includeDeleted.isSelected());
             FileChooser fc = new FileChooser();
             fc.setTitle("Exportar Usuarios Agrupados por Rol - CSV");
             fc.setInitialFileName("usuarios_por_rol_" + getTimestamp() + ".csv");
@@ -249,8 +305,9 @@ public class ReportsController {
     }
 
     private void exportUsersGroupedPdf() {
+        if (!validateExport("btnUsersGroupedPdf")) return;
         try {
-            Report report = reportService.usersGroupedByRole();
+            Report report = reportService.usersReport(true, includeDeleted.isSelected());
             FileChooser fc = new FileChooser();
             fc.setTitle("Exportar Usuarios Agrupados por Rol - PDF");
             fc.setInitialFileName("usuarios_por_rol_" + getTimestamp() + ".pdf");
@@ -269,11 +326,12 @@ public class ReportsController {
     // ==================== INVENTARIO COMPLETO ====================
 
     private void exportInventoryCompleteCsv() {
+        if (!validateExport("btnInventoryCompleteCsv")) return;
         // Validar permisos de reportes e inventario
         if (!validateReportPermission("INVENTARIO")) return;
 
         try {
-            Report report = reportService.inventoryComplete();
+            Report report = reportService.inventoryReport("Inventario completo", null, null, includeDeleted.isSelected(), selectedStockLevel(), true);
             FileChooser fc = new FileChooser();
             fc.setTitle("Exportar Inventario Completo - CSV");
             fc.setInitialFileName("inventario_completo_" + getTimestamp() + ".csv");
@@ -290,8 +348,9 @@ public class ReportsController {
     }
 
     private void exportInventoryCompletePdf() {
+        if (!validateExport("btnInventoryCompletePdf")) return;
         try {
-            Report report = reportService.inventoryComplete();
+            Report report = reportService.inventoryReport("Inventario completo", null, null, includeDeleted.isSelected(), selectedStockLevel(), true);
             FileChooser fc = new FileChooser();
             fc.setTitle("Exportar Inventario Completo - PDF");
             fc.setInitialFileName("inventario_completo_" + getTimestamp() + ".pdf");
@@ -309,8 +368,9 @@ public class ReportsController {
     // ==================== PRODUCTOS CON STOCK BAJO ====================
 
     private void exportInventoryLowStockCsv() {
+        if (!validateExport("btnInventoryLowStockCsv")) return;
         try {
-            Report report = reportService.inventoryLowStockReport();
+            Report report = reportService.inventoryReport("Productos bajo el mínimo", null, null, includeDeleted.isSelected(), com.joshuamc1.sicam.core.enums.StockLevel.BELOW_MINIMUM);
             FileChooser fc = new FileChooser();
             fc.setTitle("Exportar Productos con Stock Bajo - CSV");
             fc.setInitialFileName("productos_stock_bajo_" + getTimestamp() + ".csv");
@@ -327,15 +387,16 @@ public class ReportsController {
     }
 
     private void exportInventoryLowStockPdf() {
+        if (!validateExport("btnInventoryLowStockPdf")) return;
         try {
-            Report report = reportService.inventoryLowStockReport();
+            Report report = reportService.inventoryReport("Productos bajo el mínimo", null, null, includeDeleted.isSelected(), com.joshuamc1.sicam.core.enums.StockLevel.BELOW_MINIMUM);
             FileChooser fc = new FileChooser();
             fc.setTitle("Exportar Productos con Stock Bajo - PDF");
             fc.setInitialFileName("productos_stock_bajo_" + getTimestamp() + ".pdf");
             fc.getExtensionFilters().add(new FileChooser.ExtensionFilter("PDF files", "*.pdf"));
             File f = fc.showSaveDialog(btnInventoryLowStockPdf.getScene().getWindow());
             if (f == null) return;
-            String description = "Productos cuyo stock actual es igual o menor al stock mínimo establecido. Ideal para planificar compras.";
+            String description = "Productos con stock positivo menor que el mínimo. No incluye productos sin stock ni cerca del mínimo.";
             exportToPdfAsync(report, f, description);
         } catch (Exception ex) {
             Logs.error(getClass(), "Error exportando productos con stock bajo a PDF", ex);
@@ -346,8 +407,9 @@ public class ReportsController {
     // ==================== PRODUCTOS SIN STOCK ====================
 
     private void exportInventoryOutOfStockCsv() {
+        if (!validateExport("btnInventoryOutOfStockCsv")) return;
         try {
-            Report report = reportService.inventoryOutOfStock();
+            Report report = reportService.inventoryReport("Productos sin stock", null, null, includeDeleted.isSelected(), com.joshuamc1.sicam.core.enums.StockLevel.OUT_OF_STOCK);
             FileChooser fc = new FileChooser();
             fc.setTitle("Exportar Productos Sin Stock - CSV");
             fc.setInitialFileName("productos_sin_stock_" + getTimestamp() + ".csv");
@@ -364,15 +426,16 @@ public class ReportsController {
     }
 
     private void exportInventoryOutOfStockPdf() {
+        if (!validateExport("btnInventoryOutOfStockPdf")) return;
         try {
-            Report report = reportService.inventoryOutOfStock();
+            Report report = reportService.inventoryReport("Productos sin stock", null, null, includeDeleted.isSelected(), com.joshuamc1.sicam.core.enums.StockLevel.OUT_OF_STOCK);
             FileChooser fc = new FileChooser();
             fc.setTitle("Exportar Productos Sin Stock - PDF");
             fc.setInitialFileName("productos_sin_stock_" + getTimestamp() + ".pdf");
             fc.getExtensionFilters().add(new FileChooser.ExtensionFilter("PDF files", "*.pdf"));
             File f = fc.showSaveDialog(btnInventoryOutOfStockPdf.getScene().getWindow());
             if (f == null) return;
-            String description = "Productos que actualmente tienen stock en cero. Requieren reabastecimiento urgente.";
+            String description = "Productos con stock igual o menor que cero. Requieren reabastecimiento urgente.";
             exportToPdfAsync(report, f, description);
         } catch (Exception ex) {
             Logs.error(getClass(), "Error exportando productos sin stock a PDF", ex);
@@ -383,8 +446,9 @@ public class ReportsController {
     // ==================== MOVIMIENTOS DE INVENTARIO ====================
 
     private void exportInventoryMovementsCsv() {
+        if (!validateExport("btnInventoryMovementsCsv")) return;
         try {
-            Report report = reportService.inventoryMovements();
+            Report report = reportService.transactionReport("Movimientos de los últimos 30 días", null, java.time.LocalDate.now().minusDays(29).toString(), java.time.LocalDate.now().toString(), null, null, selectedTransactionStatus());
             FileChooser fc = new FileChooser();
             fc.setTitle("Exportar Movimientos de Inventario - CSV");
             fc.setInitialFileName("movimientos_inventario_" + getTimestamp() + ".csv");
@@ -401,15 +465,16 @@ public class ReportsController {
     }
 
     private void exportInventoryMovementsPdf() {
+        if (!validateExport("btnInventoryMovementsPdf")) return;
         try {
-            Report report = reportService.inventoryMovements();
+            Report report = reportService.transactionReport("Movimientos de los últimos 30 días", null, java.time.LocalDate.now().minusDays(29).toString(), java.time.LocalDate.now().toString(), null, null, selectedTransactionStatus());
             FileChooser fc = new FileChooser();
             fc.setTitle("Exportar Movimientos de Inventario - PDF");
             fc.setInitialFileName("movimientos_inventario_" + getTimestamp() + ".pdf");
             fc.getExtensionFilters().add(new FileChooser.ExtensionFilter("PDF files", "*.pdf"));
             File f = fc.showSaveDialog(btnInventoryMovementsPdf.getScene().getWindow());
             if (f == null) return;
-            String description = "Historial de todas las transacciones: ingresos, egresos y préstamos realizados en el último mes.";
+            String description = "Movimientos de los últimos 30 días por fecha de operación. Una fila por transacción con desglose de productos y unidades, con estado y datos de invalidación.";
             exportToPdfAsync(report, f, description);
         } catch (Exception ex) {
             Logs.error(getClass(), "Error exportando movimientos de inventario a PDF", ex);
@@ -420,14 +485,13 @@ public class ReportsController {
     // ==================== MOVIMIENTOS POR RANGO DE FECHAS ====================
 
     private void exportMovementsByDateRangeCsv() {
+        if (!validateExport("btnMovementsByDateCsv")) return;
         DateRangeDialog.DateRange dateRange = DateRangeDialog.showDialog("Movimientos por Rango de Fechas");
         if (dateRange == null) return;
 
         try {
-            Report report = reportService.inventoryMovementsByDateRange(
-                dateRange.getFromString(),
-                dateRange.getToString()
-            );
+            Report report = reportService.transactionReport("Movimientos por fecha de operación", null,
+                dateRange.getFromString(), dateRange.getToString(), null, null, selectedTransactionStatus());
             FileChooser fc = new FileChooser();
             fc.setTitle("Exportar Movimientos por Fecha - CSV");
             fc.setInitialFileName("movimientos_" + dateRange.getFromString() + "_" + dateRange.getToString() + ".csv");
@@ -444,14 +508,13 @@ public class ReportsController {
     }
 
     private void exportMovementsByDateRangePdf() {
+        if (!validateExport("btnMovementsByDatePdf")) return;
         DateRangeDialog.DateRange dateRange = DateRangeDialog.showDialog("Movimientos por Rango de Fechas");
         if (dateRange == null) return;
 
         try {
-            Report report = reportService.inventoryMovementsByDateRange(
-                dateRange.getFromString(),
-                dateRange.getToString()
-            );
+            Report report = reportService.transactionReport("Movimientos por fecha de operación", null,
+                dateRange.getFromString(), dateRange.getToString(), null, null, selectedTransactionStatus());
             FileChooser fc = new FileChooser();
             fc.setTitle("Exportar Movimientos por Fecha - PDF");
             fc.setInitialFileName("movimientos_" + dateRange.getFromString() + "_" + dateRange.getToString() + ".pdf");
@@ -471,14 +534,13 @@ public class ReportsController {
     // ==================== PRODUCTOS REGISTRADOS POR RANGO DE FECHAS ====================
 
     private void exportProductsByDateRangeCsv() {
+        if (!validateExport("btnProductsByDateCsv")) return;
         DateRangeDialog.DateRange dateRange = DateRangeDialog.showDialog("Productos Registrados por Fecha");
         if (dateRange == null) return;
 
         try {
-            Report report = reportService.inventoryProductsByDateRange(
-                dateRange.getFromString(),
-                dateRange.getToString()
-            );
+            Report report = reportService.inventoryReport("Productos por fecha de registro",
+                dateRange.getFromString(), dateRange.getToString(), includeDeleted.isSelected(), selectedStockLevel());
             FileChooser fc = new FileChooser();
             fc.setTitle("Exportar Productos por Fecha - CSV");
             fc.setInitialFileName("productos_registrados_" + dateRange.getFromString() + "_" + dateRange.getToString() + ".csv");
@@ -495,14 +557,13 @@ public class ReportsController {
     }
 
     private void exportProductsByDateRangePdf() {
+        if (!validateExport("btnProductsByDatePdf")) return;
         DateRangeDialog.DateRange dateRange = DateRangeDialog.showDialog("Productos Registrados por Fecha");
         if (dateRange == null) return;
 
         try {
-            Report report = reportService.inventoryProductsByDateRange(
-                dateRange.getFromString(),
-                dateRange.getToString()
-            );
+            Report report = reportService.inventoryReport("Productos por fecha de registro",
+                dateRange.getFromString(), dateRange.getToString(), includeDeleted.isSelected(), selectedStockLevel());
             FileChooser fc = new FileChooser();
             fc.setTitle("Exportar Productos por Fecha - PDF");
             fc.setInitialFileName("productos_registrados_" + dateRange.getFromString() + "_" + dateRange.getToString() + ".pdf");
@@ -521,8 +582,9 @@ public class ReportsController {
 
     // ==================== TRANSACCIONES - HISTORIAL COMPLETO ====================
     private void exportTransactionsAllCsv() {
+        if (!validateExport("btnTransactionsAllCsv")) return;
         try {
-            Report report = reportService.transactionsAll();
+            Report report = reportService.transactionReport("Historial de transacciones", null, null, null, null, null, selectedTransactionStatus());
             FileChooser fc = new FileChooser();
             fc.setTitle("Exportar Historial de Transacciones - CSV");
             fc.setInitialFileName("transacciones_historial_" + getTimestamp() + ".csv");
@@ -538,15 +600,16 @@ public class ReportsController {
     }
 
     private void exportTransactionsAllPdf() {
+        if (!validateExport("btnTransactionsAllPdf")) return;
         try {
-            Report report = reportService.transactionsAll();
+            Report report = reportService.transactionReport("Historial de transacciones", null, null, null, null, null, selectedTransactionStatus());
             FileChooser fc = new FileChooser();
             fc.setTitle("Exportar Historial de Transacciones - PDF");
             fc.setInitialFileName("transacciones_historial_" + getTimestamp() + ".pdf");
             fc.getExtensionFilters().add(new FileChooser.ExtensionFilter("PDF files", "*.pdf"));
             File f = fc.showSaveDialog(btnTransactionsAllPdf.getScene().getWindow());
             if (f == null) return;
-            String description = "Todas las transacciones registradas en el sistema";
+            String description = "Historial según el estado seleccionado. Una fila por transacción con desglose de productos y unidades; incluye los datos de invalidación.";
             exportToPdfAsync(report, f, description);
         } catch (Exception ex) {
             Logs.error(getClass(), "Error exportando historial de transacciones a PDF", ex);
@@ -556,10 +619,11 @@ public class ReportsController {
 
     // ==================== TRANSACCIONES - POR TIPO ====================
     private void exportTransactionsByTypeCsv() {
+        if (!validateExport("btnTransactionsByTypeCsv")) return;
         TransactionTypeDialog.TransactionType type = TransactionTypeDialog.showDialog("Transacciones por Tipo");
         if (type == null) return;
         try {
-            Report report = reportService.transactionsByTypeReport(type.getCode());
+            Report report = reportService.transactionReport("Transacciones por tipo", type.getCode(), null, null, null, null, selectedTransactionStatus());
             FileChooser fc = new FileChooser();
             fc.setTitle("Exportar Transacciones por Tipo - CSV");
             fc.setInitialFileName("transacciones_" + type.getCode() + "_" + getTimestamp() + ".csv");
@@ -575,10 +639,11 @@ public class ReportsController {
     }
 
     private void exportTransactionsByTypePdf() {
+        if (!validateExport("btnTransactionsByTypePdf")) return;
         TransactionTypeDialog.TransactionType type = TransactionTypeDialog.showDialog("Transacciones por Tipo");
         if (type == null) return;
         try {
-            Report report = reportService.transactionsByTypeReport(type.getCode());
+            Report report = reportService.transactionReport("Transacciones por tipo", type.getCode(), null, null, null, null, selectedTransactionStatus());
             FileChooser fc = new FileChooser();
             fc.setTitle("Exportar Transacciones por Tipo - PDF");
             fc.setInitialFileName("transacciones_" + type.getCode() + "_" + getTimestamp() + ".pdf");
@@ -595,12 +660,13 @@ public class ReportsController {
 
     // ==================== TRANSACCIONES - POR TIPO Y FECHA ====================
     private void exportTransactionsByTypeAndDateCsv() {
+        if (!validateExport("btnTransactionsByTypeAndDateCsv")) return;
         TransactionTypeDialog.TransactionType type = TransactionTypeDialog.showDialog("Transacciones por Tipo y Fecha");
         if (type == null) return;
         DateRangeDialog.DateRange dateRange = DateRangeDialog.showDialog("Seleccione el rango de fechas");
         if (dateRange == null) return;
         try {
-            Report report = reportService.transactionsByTypeAndDateRange(type.getCode(), dateRange.getFromString(), dateRange.getToString());
+            Report report = reportService.transactionReport("Transacciones por tipo y fecha de operación", type.getCode(), dateRange.getFromString(), dateRange.getToString(), null, null, selectedTransactionStatus());
             FileChooser fc = new FileChooser();
             fc.setTitle("Exportar Transacciones por Tipo y Fecha - CSV");
             fc.setInitialFileName("transacciones_" + type.getCode() + "_" + dateRange.getFromString() + "_" + dateRange.getToString() + ".csv");
@@ -616,12 +682,13 @@ public class ReportsController {
     }
 
     private void exportTransactionsByTypeAndDatePdf() {
+        if (!validateExport("btnTransactionsByTypeAndDatePdf")) return;
         TransactionTypeDialog.TransactionType type = TransactionTypeDialog.showDialog("Transacciones por Tipo y Fecha");
         if (type == null) return;
         DateRangeDialog.DateRange dateRange = DateRangeDialog.showDialog("Seleccione el rango de fechas");
         if (dateRange == null) return;
         try {
-            Report report = reportService.transactionsByTypeAndDateRange(type.getCode(), dateRange.getFromString(), dateRange.getToString());
+            Report report = reportService.transactionReport("Transacciones por tipo y fecha de operación", type.getCode(), dateRange.getFromString(), dateRange.getToString(), null, null, selectedTransactionStatus());
             FileChooser fc = new FileChooser();
             fc.setTitle("Exportar Transacciones por Tipo y Fecha - PDF");
             fc.setInitialFileName("transacciones_" + type.getCode() + "_" + dateRange.getFromString() + "_" + dateRange.getToString() + ".pdf");
@@ -640,10 +707,11 @@ public class ReportsController {
 
     // ==================== TRANSACCIONES - POR USUARIO ====================
     private void exportTransactionsByUserCsv() {
+        if (!validateExport("btnTransactionsByUserCsv")) return;
         UserSelectionDialog.UserSelection userSel = UserSelectionDialog.showDialog("Transacciones por Usuario");
         if (userSel == null) return;
         try {
-            Report report = reportService.transactionsByUserReport(userSel.getUserId());
+            Report report = reportService.transactionReport("Transacciones por usuario", null, null, null, userSel.getUserId(), null, selectedTransactionStatus());
             FileChooser fc = new FileChooser();
             fc.setTitle("Exportar Transacciones por Usuario - CSV");
             fc.setInitialFileName("transacciones_usuario_" + userSel.getUserId() + "_" + getTimestamp() + ".csv");
@@ -659,10 +727,11 @@ public class ReportsController {
     }
 
     private void exportTransactionsByUserPdf() {
+        if (!validateExport("btnTransactionsByUserPdf")) return;
         UserSelectionDialog.UserSelection userSel = UserSelectionDialog.showDialog("Transacciones por Usuario");
         if (userSel == null) return;
         try {
-            Report report = reportService.transactionsByUserReport(userSel.getUserId());
+            Report report = reportService.transactionReport("Transacciones por usuario", null, null, null, userSel.getUserId(), null, selectedTransactionStatus());
             FileChooser fc = new FileChooser();
             fc.setTitle("Exportar Transacciones por Usuario - PDF");
             fc.setInitialFileName("transacciones_usuario_" + userSel.getUserId() + "_" + getTimestamp() + ".pdf");
@@ -679,10 +748,11 @@ public class ReportsController {
 
     // ==================== TRANSACCIONES - POR PERSONA ====================
     private void exportTransactionsByPersonCsv() {
+        if (!validateExport("btnTransactionsByPersonCsv")) return;
         PersonSelectionDialog.PersonSelection personSel = PersonSelectionDialog.showDialog("Transacciones por Persona");
         if (personSel == null) return;
         try {
-            Report report = reportService.transactionsByPersonReport(personSel.getPersonId());
+            Report report = reportService.transactionReport("Transacciones por persona", null, null, null, null, personSel.getPersonId(), selectedTransactionStatus());
             FileChooser fc = new FileChooser();
             fc.setTitle("Exportar Transacciones por Persona - CSV");
             fc.setInitialFileName("transacciones_persona_" + personSel.getPersonId() + "_" + getTimestamp() + ".csv");
@@ -698,10 +768,11 @@ public class ReportsController {
     }
 
     private void exportTransactionsByPersonPdf() {
+        if (!validateExport("btnTransactionsByPersonPdf")) return;
         PersonSelectionDialog.PersonSelection personSel = PersonSelectionDialog.showDialog("Transacciones por Persona");
         if (personSel == null) return;
         try {
-            Report report = reportService.transactionsByPersonReport(personSel.getPersonId());
+            Report report = reportService.transactionReport("Transacciones por persona", null, null, null, null, personSel.getPersonId(), selectedTransactionStatus());
             FileChooser fc = new FileChooser();
             fc.setTitle("Exportar Transacciones por Persona - PDF");
             fc.setInitialFileName("transacciones_persona_" + personSel.getPersonId() + "_" + getTimestamp() + ".pdf");
@@ -718,13 +789,14 @@ public class ReportsController {
 
     // ==================== REPORTES ANALÍTICOS - PRODUCTOS MÁS MOVIDOS ====================
     private void exportProductsMostMovedCsv() {
-        DateRangeDialog.DateRange dateRange = DateRangeDialog.showDialog("Productos Más Movidos");
+        if (!validateExport("btnProductsMostMovedCsv")) return;
+        DateRangeDialog.DateRange dateRange = DateRangeDialog.showDialog("Productos con mayor movimiento");
         if (dateRange == null) return;
         try {
             Report report = reportService.productsMostMoved(dateRange.getFromString(), dateRange.getToString());
             FileChooser fc = new FileChooser();
-            fc.setTitle("Exportar Productos Más Movidos - CSV");
-            fc.setInitialFileName("productos_mas_movidos_" + getTimestamp() + ".csv");
+            fc.setTitle("Exportar Productos con mayor movimiento - CSV");
+            fc.setInitialFileName("productos_con_mayor_movimiento_" + getTimestamp() + ".csv");
             fc.getExtensionFilters().add(new FileChooser.ExtensionFilter("CSV files", "*.csv"));
             File f = fc.showSaveDialog(btnProductsMostMovedCsv.getScene().getWindow());
             if (f == null) return;
@@ -737,17 +809,18 @@ public class ReportsController {
     }
 
     private void exportProductsMostMovedPdf() {
-        DateRangeDialog.DateRange dateRange = DateRangeDialog.showDialog("Productos Más Movidos");
+        if (!validateExport("btnProductsMostMovedPdf")) return;
+        DateRangeDialog.DateRange dateRange = DateRangeDialog.showDialog("Productos con mayor movimiento");
         if (dateRange == null) return;
         try {
             Report report = reportService.productsMostMoved(dateRange.getFromString(), dateRange.getToString());
             FileChooser fc = new FileChooser();
-            fc.setTitle("Exportar Productos Más Movidos - PDF");
-            fc.setInitialFileName("productos_mas_movidos_" + getTimestamp() + ".pdf");
+            fc.setTitle("Exportar Productos con mayor movimiento - PDF");
+            fc.setInitialFileName("productos_con_mayor_movimiento_" + getTimestamp() + ".pdf");
             fc.getExtensionFilters().add(new FileChooser.ExtensionFilter("PDF files", "*.pdf"));
             File f = fc.showSaveDialog(btnProductsMostMovedPdf.getScene().getWindow());
             if (f == null) return;
-            String description = String.format("Top 20 productos con más transacciones desde %s hasta %s.",
+            String description = String.format("Productos ordenados por número de transacciones vigentes desde %s hasta %s; excluye invalidadas y artículos cancelados.",
                 dateRange.getFrom().format(java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy")),
                 dateRange.getTo().format(java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy")));
             exportToPdfAsync(report, f, description);
@@ -759,6 +832,7 @@ public class ReportsController {
 
     // ==================== REPORTES ANALÍTICOS - PRÉSTAMOS ACTIVOS ====================
     private void exportPeopleWithLoansCsv() {
+        if (!validateExport("btnPeopleWithLoansCsv")) return;
         try {
             Report report = reportService.peopleWithActiveLoans();
             FileChooser fc = new FileChooser();
@@ -776,6 +850,7 @@ public class ReportsController {
     }
 
     private void exportPeopleWithLoansPdf() {
+        if (!validateExport("btnPeopleWithLoansPdf")) return;
         try {
             Report report = reportService.peopleWithActiveLoans();
             FileChooser fc = new FileChooser();
@@ -784,7 +859,7 @@ public class ReportsController {
             fc.getExtensionFilters().add(new FileChooser.ExtensionFilter("PDF files", "*.pdf"));
             File f = fc.showSaveDialog(btnPeopleWithLoansPdf.getScene().getWindow());
             if (f == null) return;
-            String description = "Control de préstamos activos con información detallada de días transcurridos.";
+            String description = "Una fila por préstamo, con responsable, contacto y productos. Vencidos primero; excluye cerrados e invalidados.";
             exportToPdfAsync(report, f, description);
         } catch (Exception ex) {
             Logs.error(getClass(), "Error exportando préstamos activos a PDF", ex);
@@ -794,6 +869,7 @@ public class ReportsController {
 
     // ==================== REPORTES ANALÍTICOS - CONSUMO MENSUAL ====================
     private void exportMonthlyConsumptionCsv() {
+        if (!validateExport("btnMonthlyConsumptionCsv")) return;
         try {
             Report report = reportService.monthlyConsumption(12); // Últimos 12 meses
             FileChooser fc = new FileChooser();
@@ -811,6 +887,7 @@ public class ReportsController {
     }
 
     private void exportMonthlyConsumptionPdf() {
+        if (!validateExport("btnMonthlyConsumptionPdf")) return;
         try {
             Report report = reportService.monthlyConsumption(12); // Últimos 12 meses
             FileChooser fc = new FileChooser();
@@ -819,7 +896,7 @@ public class ReportsController {
             fc.getExtensionFilters().add(new FileChooser.ExtensionFilter("PDF files", "*.pdf"));
             File f = fc.showSaveDialog(btnMonthlyConsumptionPdf.getScene().getWindow());
             if (f == null) return;
-            String description = "Análisis de consumo de productos de los últimos 12 meses con desglose mensual.";
+            String description = "Egresos vigentes por producto y mes, con cantidad y número de egresos. Últimos 12 meses; mes actual hasta hoy. No incluye préstamos ni invalidados.";
             exportToPdfAsync(report, f, description);
         } catch (Exception ex) {
             Logs.error(getClass(), "Error exportando consumo mensual a PDF", ex);
@@ -829,6 +906,7 @@ public class ReportsController {
 
     // ==================== REPORTES ANALÍTICOS - PRODUCTOS SIN MOVIMIENTO ====================
     private void exportProductsNoMovementCsv() {
+        if (!validateExport("btnProductsNoMovementCsv")) return;
         try {
             Report report = reportService.productsWithoutMovement(90); // Últimos 90 días
             FileChooser fc = new FileChooser();
@@ -846,6 +924,7 @@ public class ReportsController {
     }
 
     private void exportProductsNoMovementPdf() {
+        if (!validateExport("btnProductsNoMovementPdf")) return;
         try {
             Report report = reportService.productsWithoutMovement(90); // Últimos 90 días
             FileChooser fc = new FileChooser();
@@ -854,7 +933,7 @@ public class ReportsController {
             fc.getExtensionFilters().add(new FileChooser.ExtensionFilter("PDF files", "*.pdf"));
             File f = fc.showSaveDialog(btnProductsNoMovementPdf.getScene().getWindow());
             if (f == null) return;
-            String description = "Productos que no han tenido movimientos en los últimos 90 días. Detecta productos obsoletos.";
+            String description = "Sin movimientos vigentes durante al menos 90 días; excluye invalidados y artículos cancelados. Si nunca hubo movimientos, se cuenta desde la creación del producto.";
             exportToPdfAsync(report, f, description);
         } catch (Exception ex) {
             Logs.error(getClass(), "Error exportando productos sin movimiento a PDF", ex);
@@ -864,9 +943,10 @@ public class ReportsController {
 
     // ==================== REPORTES ANALÍTICOS - ACTIVIDAD POR USUARIO ====================
     private void exportUserActivityCsv() {
+        if (!validateExport("btnUserActivityCsv")) return;
         UserSelectionDialog.UserSelection userSel = UserSelectionDialog.showDialog("Actividad por Usuario");
         if (userSel == null) return;
-        DateRangeDialog.DateRange dateRange = DateRangeDialog.showDialog("Seleccione el rango de fechas");
+        DateRangeDialog.DateRange dateRange = DateRangeDialog.showDialog("Actividad por fecha de registro", true);
         if (dateRange == null) return;
         try {
             Report report = reportService.userActivity(userSel.getUserId(), dateRange.getFromString(), dateRange.getToString());
@@ -885,9 +965,10 @@ public class ReportsController {
     }
 
     private void exportUserActivityPdf() {
+        if (!validateExport("btnUserActivityPdf")) return;
         UserSelectionDialog.UserSelection userSel = UserSelectionDialog.showDialog("Actividad por Usuario");
         if (userSel == null) return;
-        DateRangeDialog.DateRange dateRange = DateRangeDialog.showDialog("Seleccione el rango de fechas");
+        DateRangeDialog.DateRange dateRange = DateRangeDialog.showDialog("Actividad por fecha de registro", true);
         if (dateRange == null) return;
         try {
             Report report = reportService.userActivity(userSel.getUserId(), dateRange.getFromString(), dateRange.getToString());
@@ -897,10 +978,9 @@ public class ReportsController {
             fc.getExtensionFilters().add(new FileChooser.ExtensionFilter("PDF files", "*.pdf"));
             File f = fc.showSaveDialog(btnUserActivityPdf.getScene().getWindow());
             if (f == null) return;
-            String description = String.format("Actividad detallada del usuario %s desde %s hasta %s con desglose diario.",
-                userSel.getUserName(),
-                dateRange.getFrom().format(java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy")),
-                dateRange.getTo().format(java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy")));
+            String description = "Transacciones registradas por " + userSel.getUserName()
+                + (dateRange.isAllDates() ? "; todas las fechas." : "; del " + dateRange.getFromString() + " al " + dateRange.getToString() + ".")
+                + " Incluye productos, estados actuales, notas e invalidaciones; una fila por transacción.";
             exportToPdfAsync(report, f, description);
         } catch (Exception ex) {
             Logs.error(getClass(), "Error exportando actividad de usuario a PDF", ex);
@@ -910,6 +990,7 @@ public class ReportsController {
 
     // ==================== REPORTES ANALÍTICOS - DASHBOARD MENSUAL ====================
     private void exportMonthlyDashboardCsv() {
+        if (!validateExport("btnMonthlyDashboardCsv")) return;
         MonthYearDialog.MonthYearSelection monthYear = MonthYearDialog.showDialog("Dashboard Mensual");
         if (monthYear == null) return;
         try {
@@ -929,6 +1010,7 @@ public class ReportsController {
     }
 
     private void exportMonthlyDashboardPdf() {
+        if (!validateExport("btnMonthlyDashboardPdf")) return;
         MonthYearDialog.MonthYearSelection monthYear = MonthYearDialog.showDialog("Dashboard Mensual");
         if (monthYear == null) return;
         try {
@@ -939,7 +1021,8 @@ public class ReportsController {
             fc.getExtensionFilters().add(new FileChooser.ExtensionFilter("PDF files", "*.pdf"));
             File f = fc.showSaveDialog(btnMonthlyDashboardPdf.getScene().getWindow());
             if (f == null) return;
-            exportMonthlyDashboardRichPdf(report, f, monthYear.getFormatted());
+            writeMonthlyDashboardRichPdf(report, f, monthYear.getFormatted());
+            showSuccess("Dashboard mensual PDF exportado: " + f.getName());
         } catch (Exception ex) {
             Logs.error(getClass(), "Error exportando dashboard mensual a PDF", ex);
             showError("No se pudo exportar el reporte: " + ex.getMessage());
@@ -947,12 +1030,11 @@ public class ReportsController {
     }
 
     // Exportación enriquecida con layout de KPIs y gráfico simple
-    private void exportMonthlyDashboardRichPdf(Report report, File file, String periodo) {
+    private void writeMonthlyDashboardRichPdf(Report report, File file, String periodo) throws IOException {
         try (org.apache.pdfbox.pdmodel.PDDocument doc = new org.apache.pdfbox.pdmodel.PDDocument()) {
-            org.apache.pdfbox.pdmodel.font.PDType0Font font = loadEmbeddedFont(doc);
-            // Si no se carga fuente embebida se usarán las estándar
-            PDFont regularPdfFont = font != null ? font : PDType1Font.HELVETICA;
-            PDFont boldPdfFont = font != null ? font : PDType1Font.HELVETICA_BOLD;
+            PdfFonts fonts = loadFonts(doc);
+            PDFont regularPdfFont = fonts.regular;
+            PDFont boldPdfFont = fonts.bold;
             org.apache.pdfbox.pdmodel.PDPage page = new org.apache.pdfbox.pdmodel.PDPage(org.apache.pdfbox.pdmodel.common.PDRectangle.A4);
             doc.addPage(page);
             org.apache.pdfbox.pdmodel.PDPageContentStream cs = new org.apache.pdfbox.pdmodel.PDPageContentStream(doc, page);
@@ -980,12 +1062,21 @@ public class ReportsController {
             // Buscamos por nombre conocido en el reporte
             java.util.Map<String, String> map = new java.util.LinkedHashMap<>();
             for (java.util.List<String> row : report.getRows()) {
-                if (row.size() < 2) continue;
-                String k = row.get(0);
-                String v = row.get(1);
+                if (row.size() < 3) continue;
+                String k = row.get(1);
+                String v = row.get(2);
                 if (k.startsWith("---")) continue; // separador
                 map.put(k, v);
             }
+
+            map.put("Total de Productos en Sistema", map.get("Productos no eliminados"));
+            map.put("Productos con Stock Bajo", map.get("Bajo el mínimo"));
+            map.put("Productos Sin Stock", map.get("Sin stock"));
+            map.put("Total Transacciones", map.get("Total de transacciones registradas"));
+            map.put("Ingresos", map.getOrDefault("Ingresos — Activos", "0"));
+            map.put("Egresos", map.getOrDefault("Egresos — Activos", "0"));
+            map.put("Préstamos", map.getOrDefault("Préstamos — Activos", "0"));
+            map.put("Usuarios Activos", map.get("Usuarios con operaciones"));
 
             // Selección de KPIs importantes
             String[] kpisOrden = {
@@ -1064,11 +1155,11 @@ public class ReportsController {
             cs.setFont(boldPdfFont, 12);
             cs.setNonStrokingColor(0f,0f,0f);
             cs.newLineAtOffset(MARGIN + 10, chartY + chartHeight - 20);
-            cs.showText("Distribución de Transacciones del Mes");
+            cs.showText("Transacciones vigentes del mes");
             cs.endText();
 
             long max = java.util.Collections.max(java.util.Arrays.asList(ingresos, egresos, prestamos, 1L));
-            float barAreaHeight = chartHeight - 50;
+            float barAreaHeight = chartHeight - 75;
             float barWidth = 60f;
             float gap = 40f;
             float startX = MARGIN + 40f;
@@ -1088,12 +1179,90 @@ public class ReportsController {
             writeCenteredPdf(cs, boldPdfFont, 11, startX + 2*(barWidth + gap) + barWidth/2, baseY + scaleValue(prestamos, max, barAreaHeight) + 5, String.valueOf(prestamos));
 
             cs.close();
+            writeMonthlyIndicatorPages(doc, report, periodo, regularPdfFont, boldPdfFont);
             doc.save(file);
-            showSuccess("Dashboard mensual PDF exportado: " + file.getName());
-        } catch (Exception e) {
-            Logs.error(getClass(), "Error creando PDF enriquecido dashboard: {}", e.getMessage());
-            showError("Fallo exportando dashboard mensual: " + e.getMessage());
         }
+    }
+
+    /** Tarjetas por ámbito; las existencias son actuales y las operaciones corresponden al mes elegido. */
+    private void writeMonthlyIndicatorPages(PDDocument doc, Report report, String periodo,
+                                            PDFont regular, PDFont bold) throws IOException {
+        java.util.Map<String, List<List<String>>> sections = new java.util.LinkedHashMap<>();
+        for (List<String> row : report.getRows()) {
+            String section = row.get(0).startsWith("Existencias actuales") ? "Existencias actuales"
+                : row.get(0).startsWith("Actividad vigente") ? "Participación del mes"
+                : row.get(0).startsWith("Actividad de") ? "Operaciones del mes" : row.get(0);
+            sections.computeIfAbsent(section, key -> new java.util.ArrayList<>()).add(List.of(row.get(1), row.get(2)));
+        }
+        long total = report.getRows().stream().filter(r -> r.get(1).equals("Total de transacciones registradas"))
+            .mapToLong(r -> Long.parseLong(r.get(2))).findFirst().orElse(0);
+        long active = 0, invalidated = 0, cancelled = 0;
+        for (List<String> row : report.getRows()) {
+            if (row.get(1).endsWith(" — Activos")) active += Long.parseLong(row.get(2));
+            if (row.get(1).endsWith(" — Invalidados")) invalidated += Long.parseLong(row.get(2));
+            if (row.get(1).endsWith(" — Cancelados")) cancelled += Long.parseLong(row.get(2));
+        }
+        List<List<String>> rates = new java.util.ArrayList<>();
+        for (var metric : List.of(List.of("Transacciones vigentes (%)", String.valueOf(active)),
+                List.of("Transacciones invalidadas (%)", String.valueOf(invalidated)),
+                List.of("Transacciones canceladas (%)", String.valueOf(cancelled)))) {
+            String percent = total == 0 ? "Sin operaciones" : String.format(java.util.Locale.ROOT,
+                "%.1f %%", Long.parseLong(metric.get(1)) * 100.0 / total);
+            rates.add(List.of(metric.get(0), percent));
+        }
+        sections.put("Indicadores de operaciones del mes", rates);
+        final float margin = 40, gap = 10, cardWidth = (PDRectangle.A4.getWidth() - margin * 2 - gap * 2) / 3;
+        PDPageContentStream cs = null;
+        float y = 0;
+        try {
+            for (var section : sections.entrySet()) {
+                List<List<String>> metrics = section.getValue();
+                for (int offset = 0; offset < metrics.size(); offset += 3) {
+                    boolean heading = offset == 0;
+                    if (cs == null || y - (heading ? 26 : 0) - 68 < margin) {
+                        if (cs != null) cs.close();
+                        PDPage page = new PDPage(PDRectangle.A4); doc.addPage(page);
+                        cs = new PDPageContentStream(doc, page);
+                        y = page.getMediaBox().getHeight() - margin;
+                        dashboardText(cs, bold, 16, margin, y, "Indicadores complementarios - " + periodo);
+                        y -= 20;
+                        dashboardText(cs, regular, 9, margin, y, "Operaciones: mes seleccionado. Existencias y registros: al generar el reporte.");
+                        y -= 28;
+                        heading = true;
+                    }
+                    if (heading) {
+                        dashboardText(cs, bold, 11, margin, y, section.getKey());
+                        y -= 18;
+                    }
+                    for (int col = 0; col < 3 && offset + col < metrics.size(); col++) {
+                        List<String> metric = metrics.get(offset + col);
+                        float x = margin + col * (cardWidth + gap);
+                        float height = 58;
+                        drawRoundedRect(cs, x, y - height, cardWidth, height, new float[]{0.95f,0.95f,0.95f});
+                        String lower = metric.get(0).toLowerCase(java.util.Locale.ROOT);
+                        float[] color = lower.contains("invalid") || lower.contains("cancel") || lower.contains("sin stock")
+                            ? new float[]{0.80f,0.23f,0.20f} : lower.contains("mínimo")
+                            ? new float[]{0.75f,0.47f,0.05f} : new float[]{0.13f,0.40f,0.60f};
+                        drawBar(cs, x, y - height, 3, height, color);
+                        List<String> label = wrapTextByWidth(metric.get(0), regular, 9, cardWidth - 20, Integer.MAX_VALUE);
+                        float textY = y - 13;
+                        for (String line : label) {
+                            dashboardText(cs, regular, 9, x + 10, textY, line); textY -= 10;
+                        }
+                        cs.setNonStrokingColor(color[0],color[1],color[2]);
+                        cs.beginText(); cs.setFont(bold, 15); cs.newLineAtOffset(x + 10, y - 46);
+                        cs.showText(metric.get(1)); cs.endText();
+                    }
+                    y -= 68;
+                }
+                y -= 8;
+            }
+        } finally { if (cs != null) cs.close(); }
+    }
+
+    private void dashboardText(PDPageContentStream cs, PDFont font, float size, float x, float y, String text) throws IOException {
+        cs.setNonStrokingColor(0.15f,0.15f,0.15f);
+        cs.beginText(); cs.setFont(font,size); cs.newLineAtOffset(x,y); cs.showText(text); cs.endText();
     }
 
     private Long parseLong(String v) {
@@ -1132,7 +1301,7 @@ public class ReportsController {
     private void exportToCsv(Report report, File file) throws IOException {
         try (BufferedWriter bw = Files.newBufferedWriter(file.toPath(), StandardCharsets.UTF_8)) {
             // Escribir encabezados
-            bw.write(String.join(",", report.getHeaders()));
+            bw.write(report.getHeaders().stream().map(this::quoteCsv).collect(java.util.stream.Collectors.joining(",")));
             bw.write("\n");
 
             // Escribir filas
@@ -1230,7 +1399,6 @@ public class ReportsController {
 
     // Método interno con progreso
     private void exportToPdfWithProgress(Report report, File file, String description, Consumer<Double> progressConsumer, Supplier<Boolean> cancelled) throws IOException {
-        configurePdfEnvironment();
         try (PDDocument doc = new PDDocument()) {
             PdfFonts fonts = loadFonts(doc);
             PDFont regularFont = fonts.regular;
@@ -1246,7 +1414,11 @@ public class ReportsController {
             if (cancelled.get()) return;
             step.run(); // carga inicial
 
-            PDPage page = new PDPage(PDRectangle.LETTER);
+            PDRectangle pageSize = report.isLandscape()
+                ? new PDRectangle(PDRectangle.A4.getHeight(), PDRectangle.A4.getWidth())
+                : report.getHeaders().size() >= 7
+                    ? new PDRectangle(PDRectangle.LETTER.getHeight(), PDRectangle.LETTER.getWidth()) : PDRectangle.LETTER;
+            PDPage page = new PDPage(pageSize);
             doc.addPage(page);
             step.run();
             if (cancelled.get()) return;
@@ -1273,8 +1445,11 @@ public class ReportsController {
             }
 
             // Título
-            cs.setFont(boldFont, 18);
-            cs.beginText(); cs.newLineAtOffset(margin + 75, y + 35); cs.showText(safe(report.getTitle())); cs.endText();
+            cs.setFont(boldFont, 14);
+            for (String titleLine : wrapTextByWidth(report.getTitle(), boldFont, 14, pageWidth - margin * 2 - 75, 8)) {
+                cs.beginText(); cs.newLineAtOffset(margin + 75, y + 35); cs.showText(titleLine); cs.endText();
+                y -= 18f;
+            }
             y -= 20f;
 
             // Línea
@@ -1301,47 +1476,128 @@ public class ReportsController {
             cs.setFont(regularFont, 10); cs.beginText(); cs.newLineAtOffset(margin + fechaLabelWidth, y); cs.showText(fecha); cs.endText(); y -= 25f;
 
             // Tabla
-            List<String> headers = report.getHeaders(); int numCols = headers.size();
-            float tableWidth = pageWidth - 2 * margin; float colWidth = tableWidth / numCols;
+            List<String> headers = new ArrayList<>(report.getHeaders());
+            int groupIndex = report.getGroupByColumn() == null ? -1 : headers.indexOf(report.getGroupByColumn());
+            if (groupIndex >= 0) headers.remove(groupIndex);
+            Map<String, List<List<String>>> groups = new java.util.LinkedHashMap<>();
+            for (List<String> source : report.getRows()) {
+                List<String> row = new ArrayList<>(source);
+                String group = groupIndex < 0 ? "" : row.remove(groupIndex);
+                groups.computeIfAbsent(group, key -> new ArrayList<>()).add(row);
+            }
+            if (groups.isEmpty()) groups.put("", List.of());
+            int numCols = headers.size();
+            float tableWidth = pageWidth - 2 * margin;
+            float[] colWidths = new float[numCols];
+            float totalWeight = 0;
+            for (int i = 0; i < numCols; i++) {
+                String header = headers.get(i);
+                boolean inventory = headers.contains("Nivel de stock");
+                float weight = inventory ? (header.equals("Producto") || header.equals("Descripción") ? 2.3f
+                    : header.equals("Nivel de stock") ? 2.2f : header.equals("ID") ? 0.6f
+                    : header.equals("Stock actual") || header.equals("Stock mínimo") ? 1.1f : 1.6f)
+                    : header.equals("Productos") ? 2.5f : header.equals("Invalidación") ? 2.1f
+                    : header.equals("Notas") || header.equals("Persona") ? 1.8f
+                    : header.equals("DNI") || header.equals("Código") ? 1.7f
+                    : header.equals("ID") || header.equals("ID préstamo") || header.equals("Días de atraso") ? 1.0f : 1.6f;
+                colWidths[i] = weight; totalWeight += weight;
+            }
+            for (int i = 0; i < numCols; i++) colWidths[i] = tableWidth * colWidths[i] / totalWeight;
             float cellPaddingX = 3f; float cellPaddingY = 2f; int headerFontSize = 9; int bodyFontSize = 8;
             cs.setFont(boldFont, headerFontSize);
-            float headerMaxWidth = colWidth - cellPaddingX * 2; float headerRowHeight = 0f;
+            float headerRowHeight = 0f;
             List<List<String>> headerLines = new ArrayList<>();
-            for (String h : headers) {
-                List<String> lines = wrapTextByWidth(h, boldFont, headerFontSize, headerMaxWidth, 3);
+            for (int headerIndex = 0; headerIndex < numCols; headerIndex++) {
+                String header = headers.get(headerIndex);
+                if (header.equals("ID préstamo")) header = "ID";
+                if (header.equals("Días de atraso")) header = "Días atraso";
+                List<String> lines = wrapTextByWidth(header, boldFont, headerFontSize,
+                    colWidths[headerIndex] - cellPaddingX * 2, Integer.MAX_VALUE);
                 headerLines.add(lines);
                 headerRowHeight = Math.max(headerRowHeight, lines.size() * (headerFontSize + cellPaddingY));
             }
             headerRowHeight = Math.max(headerRowHeight, headerFontSize + 6);
-            for (int i = 0; i < numCols; i++) {
-                float x = margin + i * colWidth; List<String> lines = headerLines.get(i); float lineY = y;
-                for (String line : lines) { cs.beginText(); cs.newLineAtOffset(x + cellPaddingX, lineY); cs.showText(line); cs.endText(); lineY -= (headerFontSize + cellPaddingY);} }
-            y -= headerRowHeight + 4f;
-            step.run(); // encabezados tabla
-
-            cs.setFont(regularFont, bodyFontSize);
-            for (List<String> row : report.getRows()) {
-                if (cancelled.get()) { cs.close(); return; }
-                List<List<String>> rowLines = new ArrayList<>(); float rowHeight = 0f;
-                for (int i = 0; i < numCols; i++) {
-                    String cellValue = (i < row.size()) ? row.get(i) : ""; if (cellValue == null) cellValue = "";
-                    if (headers.get(i).equalsIgnoreCase("Rol")) { cellValue = Roles.getRoleFullName(cellValue); }
-                    List<String> lines = wrapTextByWidth(cellValue, regularFont, bodyFontSize, colWidth - cellPaddingX * 2, 6);
-                    rowLines.add(lines); rowHeight = Math.max(rowHeight, lines.size() * (bodyFontSize + cellPaddingY));
+            step.run(); // encabezados preparados
+            boolean firstGroup = true;
+            for (Map.Entry<String, List<List<String>>> group : groups.entrySet()) {
+                String groupTitle = groupIndex < 0 || group.getValue().isEmpty() ? null
+                    : "Usuarios — " + Roles.getRoleFullName(group.getKey()) + " (" + group.getValue().size() + ")";
+                float captionHeight = groupTitle == null ? 0 : wrapTextByWidth(groupTitle, boldFont, 10,
+                    tableWidth, Integer.MAX_VALUE).size() * 12 + 8;
+                int firstRowLines = 1;
+                if (!group.getValue().isEmpty()) {
+                    List<String> firstRow = group.getValue().get(0);
+                    for (int i = 0; i < numCols; i++) {
+                        String value = i < firstRow.size() ? firstRow.get(i) : "";
+                        firstRowLines = Math.max(firstRowLines, wrapTextByWidth(value, regularFont, bodyFontSize,
+                            colWidths[i] - cellPaddingX * 2, Integer.MAX_VALUE).size());
+                    }
                 }
-                rowHeight = Math.max(rowHeight, bodyFontSize + 6);
-                if (y - rowHeight < margin) {
-                    cs.close();
-                    page = new PDPage(PDRectangle.LETTER); doc.addPage(page); y = pageHeight - margin;
-                    cs = new PDPageContentStream(doc, page); cs.setFont(boldFont, headerFontSize);
-                    for (int i = 0; i < numCols; i++) { float x = margin + i * colWidth; List<String> lines = headerLines.get(i); float lineY = y; for (String line : lines) { cs.beginText(); cs.newLineAtOffset(x + cellPaddingX, lineY); cs.showText(line); cs.endText(); lineY -= (headerFontSize + cellPaddingY);} }
-                    y -= headerRowHeight + 4f; cs.setFont(regularFont, bodyFontSize);
+                if (!firstGroup) y -= 18;
+                int fullPageLines = Math.max(1, (int) ((pageHeight - margin * 2 - captionHeight - headerRowHeight - 10)
+                    / (bodyFontSize + cellPaddingY)));
+                float needed = captionHeight + headerRowHeight + 4
+                    + (firstRowLines > fullPageLines ? 1 : firstRowLines) * (bodyFontSize + cellPaddingY) + 5;
+                if (groupIndex >= 0 && y - needed < margin) {
+                    cs.close(); page = new PDPage(pageSize); doc.addPage(page);
+                    cs = new PDPageContentStream(doc, page); y = pageHeight - margin;
                 }
-                for (int i = 0; i < numCols; i++) {
-                    float x = margin + i * colWidth; List<String> lines = rowLines.get(i); float lineY = y;
-                    for (String line : lines) { cs.beginText(); cs.newLineAtOffset(x + cellPaddingX, lineY); cs.showText(line); cs.endText(); lineY -= (bodyFontSize + cellPaddingY);} }
-            y -= rowHeight + 2f;
-            step.run(); // fila procesada
+                y = drawPdfTableHeader(cs, groupTitle, headerLines, colWidths, boldFont,
+                    margin, y, cellPaddingX, cellPaddingY, headerFontSize, headerRowHeight, tableWidth);
+                cs.setFont(regularFont, bodyFontSize);
+                firstGroup = false;
+                for (List<String> row : group.getValue()) {
+                    if (cancelled.get()) { cs.close(); return; }
+                    List<List<String>> rowLines = new ArrayList<>();
+                    int maxLines = 1;
+                    for (int i = 0; i < numCols; i++) {
+                        String value = i < row.size() && row.get(i) != null ? row.get(i) : "";
+                        if (headers.get(i).equalsIgnoreCase("Rol")) value = Roles.getRoleFullName(value);
+                        List<String> lines = wrapTextByWidth(value, regularFont, bodyFontSize,
+                            colWidths[i] - cellPaddingX * 2, Integer.MAX_VALUE);
+                        rowLines.add(lines); maxLines = Math.max(maxLines, lines.size());
+                    }
+                    float lineHeight = bodyFontSize + cellPaddingY;
+                    int lineOffset = 0;
+                    while (lineOffset < maxLines) {
+                        if (cancelled.get()) { cs.close(); return; }
+                        int available = (int) ((y - margin - 5) / lineHeight);
+                        int fullPage = (int) ((pageHeight - margin * 2 - captionHeight - headerRowHeight - 10) / lineHeight);
+                        if (available <= 0 || (lineOffset == 0 && maxLines <= fullPage && maxLines > available)) {
+                            cs.close(); page = new PDPage(pageSize); doc.addPage(page);
+                            cs = new PDPageContentStream(doc, page); y = pageHeight - margin;
+                            y = drawPdfTableHeader(cs, groupTitle, headerLines, colWidths, boldFont,
+                                margin, y, cellPaddingX, cellPaddingY, headerFontSize, headerRowHeight, tableWidth);
+                            cs.setFont(regularFont, bodyFontSize);
+                            available = Math.max(1, (int) ((y - margin - 5) / lineHeight));
+                        }
+                        int count = Math.min(maxLines - lineOffset, available);
+                        float x = margin;
+                        for (int i = 0; i < numCols; i++) {
+                            List<String> lines = rowLines.get(i);
+                            boolean stockBadge = headers.get(i).equals("Nivel de stock");
+                            boolean transactionBadge = headers.get(i).equals("Estado") && headers.contains("Productos") && headers.contains("Tipo");
+                            if ((stockBadge || transactionBadge) && lineOffset < lines.size()) {
+                                String level = row.get(i);
+                                int visibleLines = Math.min(count, lines.size() - lineOffset);
+                                List<String> visible = lines.subList(lineOffset, lineOffset + visibleLines);
+                                if (stockBadge) drawStockLevelBadge(cs, regularFont, bodyFontSize, level,
+                                    visible, x, y, colWidths[i], lineHeight);
+                                else drawTransactionStateBadge(cs, regularFont, bodyFontSize, level,
+                                    visible, x, y, colWidths[i], lineHeight);
+                            }
+                            for (int j = 0; j < count && lineOffset + j < lines.size(); j++) {
+                                cs.beginText(); cs.newLineAtOffset(x + cellPaddingX, y - j * lineHeight);
+                                cs.showText(lines.get(lineOffset + j)); cs.endText();
+                            }
+                            cs.setNonStrokingColor(0f, 0f, 0f);
+                            x += colWidths[i];
+                        }
+                        y -= count * lineHeight + 5;
+                        lineOffset += count;
+                    }
+                    step.run();
+                }
             }
             cs.close();
             doc.save(file);
@@ -1349,42 +1605,88 @@ public class ReportsController {
         }
     }
 
+    private void drawStockLevelBadge(PDPageContentStream cs, PDFont font, int size, String label,
+                                     List<String> lines, float x, float y, float columnWidth, float lineHeight) throws IOException {
+        com.joshuamc1.sicam.core.enums.StockLevel level = java.util.Arrays.stream(
+            com.joshuamc1.sicam.core.enums.StockLevel.values()).filter(v -> v.getLabel().equals(label)).findFirst().orElse(null);
+        if (level == null) { cs.setNonStrokingColor(0f,0f,0f); return; }
+        java.awt.Color color = java.awt.Color.decode(level.getColor());
+        drawReportBadge(cs, font, size, lines, x, y, columnWidth, lineHeight, color,
+            level == com.joshuamc1.sicam.core.enums.StockLevel.NEAR_MINIMUM);
+    }
+
+    private void drawTransactionStateBadge(PDPageContentStream cs, PDFont font, int size, String state,
+                                          List<String> lines, float x, float y, float width, float lineHeight) throws IOException {
+        java.awt.Color color = java.awt.Color.decode("Activo".equals(state) ? "#4CAF50"
+            : "Invalidado".equals(state) ? "#F44336" : "#9E9E9E");
+        drawReportBadge(cs, font, size, lines, x, y, width, lineHeight, color, false);
+    }
+
+    private void drawReportBadge(PDPageContentStream cs, PDFont font, int size, List<String> lines,
+                                 float x, float y, float columnWidth, float lineHeight,
+                                 java.awt.Color color, boolean darkText) throws IOException {
+        float textWidth = 0;
+        for (String line : lines) textWidth = Math.max(textWidth, font.getStringWidth(line) / 1000f * size);
+        float left = x + 1, bottom = y - (lines.size() - 1) * lineHeight - 3;
+        float w = Math.min(columnWidth - 2, textWidth + 6), h = (lines.size() - 1) * lineHeight + size + 5;
+        float r = 3, k = 0.55228475f * r;
+        cs.setNonStrokingColor(color);
+        cs.moveTo(left+r,bottom); cs.lineTo(left+w-r,bottom);
+        cs.curveTo(left+w-r+k,bottom,left+w,bottom+r-k,left+w,bottom+r);
+        cs.lineTo(left+w,bottom+h-r);
+        cs.curveTo(left+w,bottom+h-r+k,left+w-r+k,bottom+h,left+w-r,bottom+h);
+        cs.lineTo(left+r,bottom+h);
+        cs.curveTo(left+r-k,bottom+h,left,bottom+h-r+k,left,bottom+h-r);
+        cs.lineTo(left,bottom+r);
+        cs.curveTo(left,bottom+r-k,left+r-k,bottom,left+r,bottom); cs.closePath(); cs.fill();
+        cs.setNonStrokingColor(darkText ? new java.awt.Color(45,35,0) : java.awt.Color.WHITE);
+    }
+
+    private float drawPdfTableHeader(PDPageContentStream cs, String title, List<List<String>> lines,
+            float[] widths, PDFont font, float margin, float y, float paddingX, float paddingY,
+            int fontSize, float height, float tableWidth) throws IOException {
+        if (title != null) {
+            cs.setFont(font, 10);
+            for (String line : wrapTextByWidth(title, font, 10, tableWidth, Integer.MAX_VALUE)) {
+                cs.beginText(); cs.newLineAtOffset(margin, y); cs.showText(line); cs.endText(); y -= 12;
+            }
+            y -= 8;
+        }
+        cs.setFont(font, fontSize);
+        float x = margin;
+        for (int i = 0; i < widths.length; i++) {
+            float lineY = y;
+            for (String line : lines.get(i)) {
+                cs.beginText(); cs.newLineAtOffset(x + paddingX, lineY); cs.showText(line); cs.endText();
+                lineY -= fontSize + paddingY;
+            }
+            x += widths[i];
+        }
+        return y - height - 4;
+    }
+
     // --- Helpers de PDF para wrapping por ancho ---
     private List<String> wrapTextByWidth(String text, PDFont font, int fontSize, float maxWidth, int maxLines) {
-        List<String> result = new ArrayList<>();
-        if (text == null) return result;
-        String sanitized = text.replace('\r',' ').replace('\n',' ');
-        String[] words = sanitized.split(" ");
-        StringBuilder current = new StringBuilder();
-        for (String w : words) {
-            if (w.isEmpty()) continue;
-            String candidate = current.length()==0? w : current + " " + w;
-            float width = safeStringWidth(font, candidate, fontSize);
-            if (width <= maxWidth) {
-                current.setLength(0); current.append(candidate);
-            } else {
-                if (current.length()>0) result.add(current.toString());
-                float wordWidth = safeStringWidth(font, w, fontSize);
-                if (wordWidth > maxWidth && w.length() > 1) {
-                    result.addAll(splitLongWord(w, font, fontSize, maxWidth));
+        List<String> lines = new ArrayList<>();
+        if (text == null || text.isEmpty()) return lines;
+        for (String paragraph : text.replace("\r\n", "\n").replace('\r', '\n').split("\n", -1)) {
+            StringBuilder current = new StringBuilder();
+            for (String word : paragraph.split("\\s+")) {
+                if (word.isEmpty()) continue;
+                String candidate = current.length() == 0 ? word : current + " " + word;
+                if (safeStringWidth(font, candidate, fontSize) <= maxWidth) {
+                    current.setLength(0); current.append(candidate);
                 } else {
-                    current.setLength(0); current.append(w);
+                    if (current.length() > 0) { lines.add(current.toString()); current.setLength(0); }
+                    List<String> parts = splitLongWord(word, font, fontSize, maxWidth);
+                    for (int i = 0; i < parts.size() - 1; i++) lines.add(parts.get(i));
+                    if (!parts.isEmpty()) current.append(parts.get(parts.size() - 1));
                 }
             }
-            if (result.size() >= maxLines) break;
+            lines.add(current.toString());
         }
-        if (result.size() < maxLines && current.length()>0) result.add(current.toString());
-        // Ellipsis si se alcanzó límite de líneas y aún queda texto
-        if (result.size() >= maxLines && sanitized.length() > result.stream().mapToInt(String::length).sum()) {
-            String last = result.get(result.size()-1);
-            if (!last.endsWith("...")) {
-                while (safeStringWidth(font, last + "...", fontSize) > maxWidth && last.length()>1) {
-                    last = last.substring(0, last.length()-1);
-                }
-                result.set(result.size()-1, last + "...");
-            }
-        }
-        return result;
+        if (lines.size() > maxLines) return new ArrayList<>(lines.subList(0, maxLines));
+        return lines;
     }
 
     private float safeStringWidth(PDFont font, String text, int fontSize) {
@@ -1413,50 +1715,12 @@ public class ReportsController {
 
     private static class PdfFonts { final PDFont regular; final PDFont bold; PdfFonts(PDFont r, PDFont b){ this.regular=r; this.bold=b;} }
 
-    private PdfFonts loadFonts(PDDocument doc) {
-        // Intenta cargar fuentes embebidas para evitar escaneo del sistema (que provoca EOF en fuentes corruptas)
-        try (var reg = getClass().getResourceAsStream("/fonts/DejaVuSans.ttf");
+    private PdfFonts loadFonts(PDDocument doc) throws IOException {
+        // No usar PDType1Font como respaldo: inicializa el escaneo de fuentes del sistema.
+        try (var regular = getClass().getResourceAsStream("/fonts/DejaVuSans.ttf");
              var bold = getClass().getResourceAsStream("/fonts/DejaVuSans-Bold.ttf")) {
-            if (reg != null && bold != null) {
-                PDFont r = PDType0Font.load(doc, reg, true);
-                PDFont b = PDType0Font.load(doc, bold, true);
-                return new PdfFonts(r, b);
-            } else if (reg != null) {
-                PDFont r = PDType0Font.load(doc, reg, true);
-                return new PdfFonts(r, r); // Simula bold
-            }
-        } catch (Exception ex) {
-            Logs.warn(getClass(), "No se pudieron cargar fuentes embebidas: {}", ex.getMessage());
-        }
-        // Fallback a fuentes estándar; puede generar escaneo, por eso ya configuramos logging
-        return new PdfFonts(PDType1Font.HELVETICA, PDType1Font.HELVETICA_BOLD);
-    }
-
-    // Carga simple de una fuente embebida (fallback a Helvetica)
-    private org.apache.pdfbox.pdmodel.font.PDType0Font loadEmbeddedFont(org.apache.pdfbox.pdmodel.PDDocument doc) {
-        try (var is = getClass().getResourceAsStream("/fonts/DejaVuSans.ttf")) {
-            if (is != null) {
-                return org.apache.pdfbox.pdmodel.font.PDType0Font.load(doc, is, true);
-            }
-        } catch (Exception e) {
-            Logs.warn(getClass(), "No se pudo cargar fuente embebida: {}", e.getMessage());
-        }
-        return null;
-    }
-
-    private static volatile boolean pdfEnvConfigured = false;
-    private void configurePdfEnvironment() {
-        if (pdfEnvConfigured) return;
-        pdfEnvConfigured = true;
-        try {
-            // Establecer cache en temp para evitar re-build repetido
-            Path cachePath = Path.of(System.getProperty("java.io.tmpdir"), "pdfbox-font-cache");
-            System.setProperty("pdfbox.fontcache", cachePath.toString());
-            // Silenciar WARNING de fuentes corruptas
-            Logger.getLogger("org.apache.pdfbox.pdmodel.font").setLevel(Level.SEVERE);
-            Logger.getLogger("org.apache.fontbox.ttf").setLevel(Level.SEVERE);
-        } catch (Exception ex) {
-            Logs.warn(getClass(), "No se pudo configurar entorno PDF: {}", ex.getMessage());
+            if (regular == null || bold == null) throw new IOException("Faltan las fuentes incluidas para los reportes PDF");
+            return new PdfFonts(PDType0Font.load(doc, regular, true), PDType0Font.load(doc, bold, true));
         }
     }
 
@@ -1465,7 +1729,7 @@ public class ReportsController {
     private String quoteCsv(String s) {
         if (s == null) return "";
         String esc = s.replace("\"", "\"\"");
-        if (esc.contains(",") || esc.contains("\n") || esc.contains("\r")) {
+        if (s.contains("\"") || esc.contains(",") || esc.contains("\n") || esc.contains("\r")) {
             return "\"" + esc + "\"";
         }
         return esc;

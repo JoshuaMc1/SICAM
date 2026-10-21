@@ -81,6 +81,10 @@ public class HomeController implements AsyncLoadable {
     private final UserService userService = new UserService();
 
     private final AtomicBoolean loading = new AtomicBoolean(false);
+    private final AtomicBoolean disposed = new AtomicBoolean(false);
+    private final User sessionOwner = Session.getCurrentUser();
+    private final long sessionRevision = Session.getRevision();
+    private volatile Task<DashboardData> activeTask;
     private final AtomicReference<Runnable> onLoaded = new AtomicReference<>(null);
 
     // Caché temporal para evitar queries duplicadas al renderizar tabla
@@ -139,7 +143,7 @@ public class HomeController implements AsyncLoadable {
         // Programar actualización automática
         refreshScheduler.scheduleAtFixedRate(
             () -> {
-                if (!loading.get()) {
+                if (isSessionCurrent() && !loading.get()) {
                     Platform.runLater(this::loadDashboardAsync);
                 }
             },
@@ -156,19 +160,19 @@ public class HomeController implements AsyncLoadable {
      * Debe llamarse cuando se cierra el controller.
      */
     public void shutdown() {
-        if (refreshScheduler != null && !refreshScheduler.isShutdown()) {
-            refreshScheduler.shutdown();
-            try {
-                if (!refreshScheduler.awaitTermination(1, TimeUnit.SECONDS)) {
-                    refreshScheduler.shutdownNow();
-                }
-                Logs.info(HomeController.class, "Auto-refresh detenido correctamente");
-            } catch (InterruptedException e) {
-                refreshScheduler.shutdownNow();
-                Thread.currentThread().interrupt();
-            }
-        }
+        disposed.set(true);
+        onLoaded.set(null);
+        Task<DashboardData> task = activeTask;
+        activeTask = null;
+        if (task != null) task.cancel(true);
+        if (refreshScheduler != null) refreshScheduler.shutdownNow();
+        loading.set(false);
         clearItemsCache();
+    }
+
+    private boolean isSessionCurrent() {
+        return !disposed.get() && sessionOwner != null && Session.getCurrentUser() == sessionOwner
+            && Session.getRevision() == sessionRevision;
     }
 
     /**
@@ -253,6 +257,7 @@ public class HomeController implements AsyncLoadable {
     }
 
     private void notifyLoaded() {
+        if (disposed.get()) return;
         Runnable cb = onLoaded.getAndSet(null);
         if (cb != null) {
             try {
@@ -266,15 +271,23 @@ public class HomeController implements AsyncLoadable {
     /**
      * Obtiene los items de una transacción con caché para evitar queries duplicadas.
      *
-     * @param transactionId ID de la transacción
+     * @param transaction Transacción cuyo detalle se solicita
      * @return Lista de items de la transacción
      */
-    private List<com.joshuamc1.sicam.models.TransactionItem> getTransactionItemsCached(Integer transactionId) {
-        if (transactionId == null) {
+    private List<com.joshuamc1.sicam.models.TransactionItem> getTransactionItemsCached(Transaction transaction) {
+        if (!canReadTransaction(transaction)) {
             return Collections.emptyList();
         }
-        return itemsCache.computeIfAbsent(transactionId,
-            id -> transactionService.getTransactionItems(id));
+        Integer transactionId = transaction.getInteger("id");
+        if (transactionId == null) return Collections.emptyList();
+        try {
+            return itemsCache.computeIfAbsent(transactionId,
+                id -> transactionService.getTransactionItems(id));
+        } catch (SecurityException denied) {
+            // El permiso puede haberse retirado entre la comprobación y la consulta.
+            itemsCache.remove(transactionId);
+            return Collections.emptyList();
+        }
     }
 
     /**
@@ -311,7 +324,7 @@ public class HomeController implements AsyncLoadable {
             }
 
             // Obtener items con caché
-            var items = getTransactionItemsCached(transaction.getInteger("id"));
+            var items = getTransactionItemsCached(transaction);
             if (items.isEmpty()) {
                 return new SimpleStringProperty("Sin productos");
             }
@@ -344,7 +357,7 @@ public class HomeController implements AsyncLoadable {
             Transaction transaction = c.getValue();
 
             // Calcular suma total de cantidades desde los items (con caché)
-            var items = getTransactionItemsCached(transaction.getInteger("id"));
+            var items = getTransactionItemsCached(transaction);
             double total = items.stream()
                 .mapToDouble(item -> {
                     Double qty = item.getDouble("quantity");
@@ -362,6 +375,7 @@ public class HomeController implements AsyncLoadable {
 
         // Usuario que registró la transacción
         colUsuario.setCellValueFactory(c -> {
+            if (!canReadTransaction(c.getValue())) return new SimpleStringProperty("");
             User u = c.getValue().parent(User.class);
             return new SimpleStringProperty(u != null ? u.getString("name") : "N/A");
         });
@@ -375,6 +389,10 @@ public class HomeController implements AsyncLoadable {
     }
 
     private void loadDashboardAsync() {
+        if (!isSessionCurrent()) {
+            notifyLoaded();
+            return;
+        }
         if (!loading.compareAndSet(false, true)) {
             Logs.info(HomeController.class, "Dashboard load already in progress, skipping");
             return;
@@ -383,9 +401,11 @@ public class HomeController implements AsyncLoadable {
         Task<DashboardData> task = new Task<>() {
             @Override
             protected @Nullable DashboardData call() {
+                if (!isSessionCurrent() || isCancelled()) return null;
                 try {
                     // Envolver TODA la lógica (incluida la verificación de permisos) dentro de la conexión
                     return DatabaseManager.callInConnection(() -> {
+                        if (!isSessionCurrent() || isCancelled()) return null;
                         // Si tiene DASHBOARD.READ, puede ver todas las estadísticas
                         boolean canViewDashboard = PermissionHelper.canAccess("DASHBOARD", "READ");
 
@@ -402,7 +422,7 @@ public class HomeController implements AsyncLoadable {
                         data.totalProducts = productService.countAll();
                         data.lowStock = productService.countLowStock();
                         data.outOfStock = productService.countOutOfStock();
-                        data.products = productService.findAll();
+                        data.products = new ArrayList<>(productService.findAll());
                         data.newProductsThisMonth = productService.countCreatedThisMonth();
                         data.newProductsLastMonth = productService.countCreatedLastMonth();
 
@@ -410,8 +430,8 @@ public class HomeController implements AsyncLoadable {
                         data.activeLoans = transactionService.countActiveLoans();
                         data.transactionsThisMonth = transactionService.countThisMonth();
                         data.transactionsLastMonth = transactionService.countLastMonth();
-                        data.latestTransactions = transactionService.findLatest(15);
-                        data.last30DaysTransactions = transactionService.findLast30Days();
+                        data.latestTransactions = new ArrayList<>(transactionService.findLatest(15));
+                        data.last30DaysTransactions = new ArrayList<>(transactionService.findLast30Days());
                         data.mostMovedProducts = transactionService.getMostMovedProducts(10);
                         data.transactionsByType = transactionService.getTransactionsByType();
                         data.weeklyActivity = transactionService.getWeeklyActivity();
@@ -426,44 +446,67 @@ public class HomeController implements AsyncLoadable {
 
                         data.quarterlyTrend = transactionService.getQuarterlyTrend();
 
+                        if (!isSessionCurrent() || isCancelled()) return null;
+                        data.authorized = true;
                         Logs.info(HomeController.class, "Dashboard data loaded successfully");
-
                         return data;
                     });
                 } catch (Exception e) {
-                    Logs.error(HomeController.class, "Error loading dashboard data: {}", e.getMessage());
+                    if (!isSessionCurrent() || isCancelled()) return null;
+                    Logs.error(HomeController.class, "Error loading dashboard data", e);
                     throw e;
                 }
             }
 
             @Override
             protected void succeeded() {
-                Platform.runLater(() -> {
-                    try {
-                        DashboardData data = getValue();
-                        updateKPIs(data);
-                        updateCharts(data);
-                        updateTable(data.latestTransactions);
-                        updateContextInfo();
-                    } finally {
-                        loading.set(false);
-                        notifyLoaded();
+                // Task ya entrega este callback en JavaFX: no encolar otra actualización tardía.
+                try {
+                    if (!isSessionCurrent() || isCancelled()) return;
+                    DashboardData data = getValue();
+                    if (data == null) return;
+                    if (!data.authorized || !PermissionHelper.canAccess("DASHBOARD", "READ")) {
+                        hideAllWidgets();
+                        lblEstadoSistema.setText("● Sin permiso para consultar Inicio");
+                        return;
                     }
-                });
+                    updateKPIs(data);
+                    updateCharts(data);
+                    updateTable(data.latestTransactions);
+                    updateContextInfo();
+                } finally {
+                    activeTask = null;
+                    loading.set(false);
+                    notifyLoaded();
+                }
             }
 
             @Override
             protected void failed() {
+                activeTask = null;
                 loading.set(false);
-                Platform.runLater(() -> {
-                    Throwable e = getException();
-                    Logs.error(HomeController.class, "Dashboard load failed: {}", e == null ? "unknown" : e.getMessage());
-                    lblEstadoSistema.setText("● Error de carga");
-                    lblEstadoSistema.setStyle("-fx-font-size: 12; -fx-text-fill: #e74c3c;");
-                    notifyLoaded();
-                });
+                if (!isSessionCurrent()) return;
+                try {
+                    Throwable error = getException();
+                    Logs.error(HomeController.class, "Dashboard load failed", error);
+                    if (!PermissionHelper.canAccess("DASHBOARD", "READ")) {
+                        hideAllWidgets();
+                        lblEstadoSistema.setText("● Sin permiso para consultar Inicio");
+                    } else {
+                        lblEstadoSistema.setText("● Error de carga");
+                        lblEstadoSistema.setStyle("-fx-font-size: 12; -fx-text-fill: #e74c3c;");
+                    }
+                } finally { notifyLoaded(); }
+            }
+
+            @Override
+            protected void cancelled() {
+                activeTask = null;
+                loading.set(false);
+                notifyLoaded();
             }
         };
+        activeTask = task;
 
         Thread th = new Thread(task, "dashboard-loader");
         th.setDaemon(true);
@@ -717,10 +760,30 @@ public class HomeController implements AsyncLoadable {
     }
 
 
+    private boolean canReadTransaction(Transaction transaction) {
+        if (!isSessionCurrent() || transaction == null) return false;
+        String type = transaction.getString("type");
+        String module = "in".equals(type) ? "INGRESOS" : "out".equals(type) ? "EGRESOS"
+            : "loan".equals(type) ? "PRESTAMOS" : null;
+        return module != null && PermissionHelper.canAccess(module, "READ")
+            && (transaction.isActive() || PermissionHelper.canAccess("SISTEMA", "VIEW_DELETED"));
+    }
+
     private void updateTable(List<Transaction> transactions) {
         // Limpiar caché anterior
         clearItemsCache();
-        tblTransacciones.setItems(FXCollections.observableArrayList(transactions));
+        List<Transaction> visible = transactions.stream().filter(this::canReadTransaction)
+            .collect(java.util.stream.Collectors.toList());
+        tblTransacciones.setItems(FXCollections.observableArrayList(visible));
+        Label placeholder = new Label("Sin transacciones recientes para mostrar");
+        boolean canReadAny = PermissionHelper.canAccess("INGRESOS", "READ")
+            || PermissionHelper.canAccess("EGRESOS", "READ")
+            || PermissionHelper.canAccess("PRESTAMOS", "READ");
+        if (!canReadAny) {
+            placeholder.setText("No cuenta con permisos suficientes para consultar transacciones.");
+            placeholder.setStyle("-fx-text-fill: #D32F2F;");
+        }
+        tblTransacciones.setPlaceholder(placeholder);
     }
 
     private void updateContextInfo() {
@@ -834,14 +897,15 @@ public class HomeController implements AsyncLoadable {
         long loansLastMonth;
 
         // Listas de datos
-        List<Product> products;
-        List<Transaction> latestTransactions;
-        List<Transaction> last30DaysTransactions;
+        boolean authorized;
+        List<Product> products = Collections.emptyList();
+        List<Transaction> latestTransactions = Collections.emptyList();
+        List<Transaction> last30DaysTransactions = Collections.emptyList();
 
         // Mapas de análisis
-        Map<String, Long> mostMovedProducts;
-        Map<String, Long> transactionsByType;
-        Map<Integer, Long> weeklyActivity;
-        Map<String, Map<String, Long>> quarterlyTrend;
+        Map<String, Long> mostMovedProducts = Collections.emptyMap();
+        Map<String, Long> transactionsByType = Collections.emptyMap();
+        Map<Integer, Long> weeklyActivity = Collections.emptyMap();
+        Map<String, Map<String, Long>> quarterlyTrend = Collections.emptyMap();
     }
 }

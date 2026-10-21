@@ -16,14 +16,14 @@ public class ProductRepository {
      */
     public List<Product> findAll() {
         return Product.where("status != ?", Product.STATUS_DELETED)
-            .orderBy("id");
+            .orderBy("id DESC");
     }
 
     /**
      * Busca todos los productos incluyendo eliminados
      */
     public List<Product> findAllIncludingDeleted() {
-        return Product.findAll().orderBy("name");
+        return Product.findAll().orderBy("id DESC");
     }
 
     /**
@@ -31,7 +31,7 @@ public class ProductRepository {
      */
     public List<Product> findDeleted() {
         return Product.where("status = ?", Product.STATUS_DELETED)
-            .orderBy("deleted_at DESC");
+            .orderBy("id DESC");
     }
 
     /**
@@ -39,7 +39,7 @@ public class ProductRepository {
      */
     public List<Product> findActive() {
         return Product.where("status = ?", Product.STATUS_ACTIVE)
-            .orderBy("name");
+            .orderBy("id DESC");
     }
 
     /**
@@ -47,7 +47,7 @@ public class ProductRepository {
      */
     public List<Product> findInactive() {
         return Product.where("status = ?", Product.STATUS_INACTIVE)
-            .orderBy("name");
+            .orderBy("id DESC");
     }
 
     /**

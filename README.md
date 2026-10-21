@@ -32,7 +32,7 @@ Sistema completo de gestión de inventario desarrollado en JavaFX con MySQL para
 - ✅ Búsqueda por ID, producto o persona
 
 ### 🔐 Seguridad Robusta
-- 🔑 **Sistema RBAC** - 6 roles predefinidos, 84 permisos granulares
+- 🔑 **Sistema RBAC** - 6 roles predefinidos, 45 permisos implementados
 - 🔒 **Autenticación** - Contraseñas con BCrypt (10 rounds)
 - 👤 **Usuario SYSTEM** - Para operaciones automáticas (invisible en UI)
 - 📝 **Auditoría** - Registro completo de acciones del sistema
@@ -153,30 +153,9 @@ mvn javafx:run
 
 ## 🔐 Sistema de Roles y Permisos
 
-### Roles Predefinidos
+El catálogo contiene **45 permisos implementados en 12 módulos**, con seis roles iniciales. La matriz, sus límites y las funciones exclusivas de ADMIN y ROOT se documentan en [Roles y autorización](docs/AUTORIZACION.md).
 
-| Rol | Descripción | Acceso |
-|-----|-------------|--------|
-| **ROOT** | Acceso total al sistema | Todo |
-| **ADMIN** | Administración general | Todo excepto configuración crítica |
-| **GESTOR** | Gestión de inventario | Inventario, transacciones, reportes |
-| **EDITOR** | Edición de datos | Productos, personas, transacciones |
-| **OPERADOR** | Operaciones básicas | Registro de transacciones |
-| **CONSULTOR** | Solo lectura | Ver información, exportar |
-
-### Permisos Granulares
-
-**84 permisos** distribuidos en **14 módulos** con **6 acciones cada uno**:
-- CREATE, READ, UPDATE, DELETE, EXPORT, GENERATE
-
-**Ejemplo:**
-- `INVENTARIO.CREATE` - Crear productos
-- `REPORTES.GENERATE` - Generar reportes
-- `BACKUPS.DELETE` - Eliminar backups
-
-**📖 Documentación completa:** [docs/SECURITY.md](docs/SECURITY.md)
-
----
+Las transacciones se pueden crear, consultar, invalidar y restaurar; no existe edición ni aprobación.
 
 ## 📷 Características Especiales
 
@@ -334,20 +313,16 @@ Este será el superadministrador con acceso total al sistema.
 
 ## 👥 Roles y Permisos
 
-El sistema implementa un modelo **RBAC** (Role-Based Access Control) con 6 roles predefinidos:
+| Rol | Permisos iniciales | Alcance |
+| --- | ---: | --- |
+| ROOT | 45 | Acceso total a funciones implementadas; operaciones destructivas exclusivas. |
+| ADMIN | 44 | Administración general, Roles, Auditoría y Backup; sin operaciones destructivas. |
+| SUPERVISOR | 27 | Operaciones, invalidación, restauración y reportes. |
+| OPERADOR | 13 | Creación y consulta de operaciones, edición de inventario y personas. |
+| CONSULTOR | 9 | Consulta operativa y reportes. |
+| AUDITOR | 13 | Lectura, auditoría, reportes y visualización de eliminados. |
 
-| Rol | Permisos | Módulos Accesibles | Descripción |
-|-----|----------|-------------------|-------------|
-| **ROOT** | 52 (100%) | 13/13 | Superadministrador con acceso total |
-| **ADMIN** | 40 (77%) | 12/13 | Administrador general (sin Auditoría ni Roles) |
-| **SUPERVISOR** | 29 (56%) | 9/13 | Supervisor operativo (sin Usuarios, Roles, Auditoría, Backup) |
-| **OPERADOR** | 16 (sin DELETE) | 8/13 | Operador básico (sin eliminaciones) |
-| **CONSULTOR** | 12 (solo READ) | 7/13 | Consulta y reportes (solo lectura) |
-| **AUDITOR** | 5 (especializado) | 3/13 | Auditoría y supervisión especializada |
-
-### Matriz Detallada de Permisos
-
-Ver [SECURITY.md](docs/SECURITY.md) para la matriz completa de permisos por módulo y rol.
+Los permisos de generación/exportación, asignación de roles y gestión de permisos se validan por separado. Ver [política de autorización](docs/AUTORIZACION.md).
 
 ---
 
@@ -373,10 +348,10 @@ Ver [SECURITY.md](docs/SECURITY.md) para la matriz completa de permisos por mód
 ### Gestión
 - **Personas**: Registro de personas para préstamos
 - **Usuarios**: Administración de usuarios del sistema
-- **Roles**: Gestión de roles y permisos (solo ROOT)
+- **Roles**: Gestión autorizada de roles y permisos; ROOT permanece protegido
 
 ### Auditoría y Reportes
-- **Auditoría**: Vista de logs del sistema (ROOT y AUDITOR)
+- **Auditoría**: Vista y exportación según permisos de Auditoría
 - **Reportes**: Generación de reportes en PDF/CSV
 - **Backup**: Copias de seguridad de la base de datos (ROOT y ADMIN)
 - **Perfil**: Gestión del perfil propio del usuario
@@ -412,7 +387,7 @@ Ver [SECURITY.md](docs/SECURITY.md) para información detallada.
 | Tabla | Descripción |
 |-------|-------------|
 | `roles` | Roles del sistema (ROOT, ADMIN, GESTOR, etc.) |
-| `permisos` | Permisos granulares (84 permisos en total) |
+| `permisos` | Permisos granulares (45 permisos implementados) |
 | `rol_permisos` | Relación roles-permisos (Many-to-Many) |
 | `users` | Usuarios del sistema (incluye usuario SYSTEM) |
 | `people` | Personas (empleados, beneficiarios) |

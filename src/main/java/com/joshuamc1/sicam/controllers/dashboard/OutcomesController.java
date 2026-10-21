@@ -8,6 +8,7 @@ import com.joshuamc1.sicam.core.Utils;
 import com.joshuamc1.sicam.models.Person;
 import com.joshuamc1.sicam.models.Product;
 import com.joshuamc1.sicam.models.Transaction;
+import com.joshuamc1.sicam.utils.TransactionStatusBadge;
 import com.joshuamc1.sicam.models.TransactionItem;
 import com.joshuamc1.sicam.models.dto.TransactionItemDTO;
 import com.joshuamc1.sicam.services.PersonService;
@@ -43,7 +44,7 @@ public class OutcomesController {
     @FXML private Button btnViewInvalidated;
     @FXML private TextField txtSearch;
     @FXML
-    private TableColumn<Transaction, String> colId;
+    private TableColumn<Transaction, Integer> colId;
     @FXML
     private TableColumn<Transaction, String> colStatus;
     @FXML
@@ -70,6 +71,8 @@ public class OutcomesController {
     @FXML private ChoiceBox<Integer> choicePageSize;
 
     // Estado de paginación
+    private com.joshuamc1.sicam.core.PagedTableSupport<Transaction> pageOrder;
+    private long loadRevision;
     private int currentPage = 1;
     private int pageSize = 25;
     private int totalItems = 0;
@@ -92,9 +95,10 @@ public class OutcomesController {
         // Configurar permisos
         setupPermissions();
 
-        colId.setCellValueFactory(data -> new SimpleStringProperty(String.valueOf(data.getValue().getInteger("id"))));
+        colId.setCellValueFactory(data -> new javafx.beans.property.SimpleObjectProperty<>(data.getValue().getInteger("id")));
 
         // Columna de estado
+        colStatus.setCellValueFactory(data -> new SimpleStringProperty(data.getValue().getString("status")));
         colStatus.setCellFactory(col -> new TableCell<>() {
             @Override
             protected void updateItem(String item, boolean empty) {
@@ -104,11 +108,7 @@ public class OutcomesController {
                     setText(null);
                 } else {
                     Transaction tx = getTableView().getItems().get(getIndex());
-                    boolean isActive = tx.isActive();
-                    Label badge = new Label(isActive ? "Activo" : "Inactivo");
-                    badge.setStyle(isActive
-                        ? "-fx-background-color: #4CAF50; -fx-text-fill: white; -fx-padding: 5 10; -fx-background-radius: 5;"
-                        : "-fx-background-color: #9E9E9E; -fx-text-fill: white; -fx-padding: 5 10; -fx-background-radius: 5;");
+                    Label badge = TransactionStatusBadge.create(tx);
                     setGraphic(badge);
                     setText(null);
                 }
@@ -166,6 +166,7 @@ public class OutcomesController {
         });
 
         // Columna de acciones con botones según permisos y estado
+        colActions.setSortable(false);
         colActions.setCellFactory(col -> new TableCell<>() {
             private final HBox container = new HBox(5);
             private final Button btnViewItems = new Button("Ver");
@@ -232,6 +233,11 @@ public class OutcomesController {
         colActions.setStyle("-fx-font-size: 17;");
 
         // Inicializar paginación (similar a InventoryController)
+        colQuantity.setComparator((left, right) -> Double.compare(
+            Double.parseDouble(left.replace(',', '.')), Double.parseDouble(right.replace(',', '.'))));
+        colItems.setComparator((left, right) -> Integer.compare(
+            Integer.parseInt(left.split(" ")[0]), Integer.parseInt(right.split(" ")[0])));
+        pageOrder = new com.joshuamc1.sicam.core.PagedTableSupport<>(tblTransactions, () -> loadPageFromRepo(1));
         choicePageSize.setItems(FXCollections.observableArrayList(10,25,50,100));
         choicePageSize.setValue(pageSize);
         choicePageSize.getSelectionModel().selectedItemProperty().addListener((obs, oldV, newV) -> {
@@ -288,7 +294,13 @@ public class OutcomesController {
     }
 
     private void loadPageFromRepo(int page) {
+        final long revision = ++loadRevision;
+        final int requestedSize = pageSize;
+        final java.util.Comparator<Transaction> order = pageOrder.comparator(java.util.Comparator.comparing(
+            (Transaction row) -> row.getInteger("id")).reversed());
+        final boolean customOrder = pageOrder.hasOrder();
         final int p = page;
+        final boolean invalidated = showingInvalidated;
         final String searchText = txtSearch != null ? txtSearch.getText() : "";
 
         Task<Void> task = new Task<>() {
@@ -299,17 +311,21 @@ public class OutcomesController {
 
                     long count;
                     List<Transaction> pageItems;
-                    int offset = (Math.max(1, p) - 1) * pageSize;
+                    int offset = (Math.max(1, p) - 1) * requestedSize;
 
-                    if (searchText == null || searchText.trim().isEmpty()) {
+                    if (!customOrder && !invalidated && (searchText == null || searchText.trim().isEmpty())) {
                         count = transactionService.countByType(Transaction.TYPE_OUT);
-                        pageItems = transactionService.findByTypePage(Transaction.TYPE_OUT, pageSize, offset);
+                        offset = (Math.min(Math.max(1, p), Math.max(1, (int) Math.ceil(count / (double) requestedSize))) - 1) * requestedSize;
+                        pageItems = transactionService.findByTypePage(Transaction.TYPE_OUT, requestedSize, offset);
                     } else {
                         // Búsqueda filtrada
-                        String search = searchText.trim().toLowerCase();
-                        List<Transaction> allTransactions = transactionService.findByType(Transaction.TYPE_OUT);
+                        String search = searchText == null ? "" : searchText.trim().toLowerCase();
+                        List<Transaction> allTransactions = invalidated
+                            ? transactionService.findInvalidatedByType(Transaction.TYPE_OUT)
+                            : transactionService.findByType(Transaction.TYPE_OUT);
                         List<Transaction> filtered = allTransactions.stream()
                             .filter(t -> {
+                                if (search.isEmpty()) return true;
                                 // Buscar por ID de transacción
                                 if (String.valueOf(t.getInteger("id")).contains(search)) return true;
 
@@ -334,28 +350,30 @@ public class OutcomesController {
                                 return false;
                             })
                             .collect(java.util.stream.Collectors.toList());
+                        filtered.sort(order);
                         count = filtered.size();
+                        offset = (Math.min(Math.max(1, p), Math.max(1, (int) Math.ceil(filtered.size() / (double) requestedSize))) - 1) * requestedSize;
                         int fromIndex = Math.min(offset, filtered.size());
-                        int toIndex = Math.min(offset + pageSize, filtered.size());
+                        int toIndex = Math.min(offset + requestedSize, filtered.size());
                         pageItems = fromIndex < toIndex ? filtered.subList(fromIndex, toIndex) : List.of();
                     }
 
                     int total = (int) count;
-                    int pages = Math.max(1, (int) Math.ceil(total / (double) pageSize));
+                    int pages = Math.max(1, (int) Math.ceil(total / (double) requestedSize));
                     int pageToLoad = Math.min(Math.max(1, p), pages);
 
-                    final List<Transaction> finalPageItems = pageItems;
+                    final List<Transaction> finalPageItems = pageItems == null ? List.of() : new java.util.ArrayList<>(pageItems);
                     Platform.runLater(() -> {
+                        if (revision != loadRevision) return;
                         totalItems = total;
                         totalPages = pages;
                         currentPage = pageToLoad;
-                        currentPageItems.setAll(finalPageItems == null ? java.util.List.of() : finalPageItems);
-                        tblTransactions.setItems(currentPageItems);
+                        pageOrder.publish(currentPageItems, finalPageItems == null ? java.util.List.of() : finalPageItems);
                         updatePaginationControls();
                     });
                 } catch (Throwable t) {
                     Logs.error(getClass(), "Error cargando página de EGRESOS: {}", t.getMessage());
-                    Platform.runLater(() -> Utils.showAlert("Error", "No se pudo cargar EGRESOS: " + t.getMessage()));
+                    Platform.runLater(() -> { if (revision == loadRevision) Utils.showAlert("Error", "No se pudo cargar EGRESOS: " + t.getMessage()); });
                 } finally {
                     DatabaseConfig.closeConnection();
                 }
@@ -383,10 +401,12 @@ public class OutcomesController {
         Dialog<List<TransactionItemDTO>> dialog = createMultiProductDialog();
         dialog.showAndWait().ifPresent(items -> {
             try {
-                // Obtener datos comunes del diálogo
-                Person selectedPerson = (Person) dialog.getDialogPane().getUserData();
-                String date = LocalDate.now().toString(); // Se puede obtener del diálogo si se necesita
-                String notes = ""; // Se puede obtener del diálogo si se necesita
+                @SuppressWarnings("unchecked")
+                java.util.Map<String, Object> data = (java.util.Map<String, Object>) dialog.getDialogPane().getUserData();
+                Person selectedPerson = (Person) data.get("person");
+                LocalDate selectedDate = (LocalDate) data.get("date");
+                String date = (selectedDate == null ? LocalDate.now() : selectedDate).toString();
+                String notes = (String) data.get("notes");
 
                 transactionService.createMultiProductTransaction(
                         Transaction.TYPE_OUT,
@@ -411,7 +431,7 @@ public class OutcomesController {
         d.setResizable(true);
         d.getDialogPane().setPrefSize(1200, 700);
         d.setTitle("Nuevo egreso Multi-Producto");
-        d.setHeaderText("Registrar entrada de múltiples productos al inventario");
+        d.setHeaderText("Registrar salida de múltiples productos del inventario");
         ButtonType save = new ButtonType("Guardar egreso", ButtonBar.ButtonData.OK_DONE);
         d.getDialogPane().getButtonTypes().addAll(save, ButtonType.CANCEL);
 
@@ -475,6 +495,7 @@ public class OutcomesController {
         btnNewPerson.setStyle("-fx-font-size: 17; -fx-font-weight: bold; -fx-background-color: #4CAF50; -fx-text-fill: white; -fx-cursor: hand;");
         btnNewPerson.setTooltip(new Tooltip("Crear nueva persona"));
         btnNewPerson.setOnAction(e -> {
+            if (!com.joshuamc1.sicam.core.PermissionHelper.validateAndShow("PERSONAS","CREATE")) return;
             Person newPerson = PersonDialogHelper.showCreatePersonDialog();
             if (newPerson != null) {
                 masterPeople.add(newPerson);
@@ -483,6 +504,8 @@ public class OutcomesController {
         });
 
         HBox personBox = new HBox(5, cmbPerson, btnNewPerson);
+        com.joshuamc1.sicam.core.PermissionHelper.configureVisibleAction(btnNewPerson,
+            com.joshuamc1.sicam.core.PermissionHelper.canAccess("PERSONAS","CREATE"));
         HBox.setHgrow(cmbPerson, Priority.ALWAYS);
 
         TextArea txtNotes = new TextArea();
@@ -597,8 +620,11 @@ public class OutcomesController {
 
         d.setResultConverter(bt -> {
             if (bt == save && !items.isEmpty()) {
-                // Guardar persona seleccionada en UserData para usarla después
-                d.getDialogPane().setUserData(cmbPerson.getValue());
+                java.util.Map<String, Object> data = new java.util.HashMap<>();
+                data.put("person", cmbPerson.getValue());
+                data.put("date", dpDate.getValue());
+                data.put("notes", txtNotes.getText());
+                d.getDialogPane().setUserData(data);
                 return new java.util.ArrayList<>(items);
             }
             return null;
@@ -672,7 +698,7 @@ public class OutcomesController {
         });
 
         TextField txtQuantity = new TextField();
-        txtQuantity.setPromptText("Cantidad");
+        txtQuantity.setPromptText("Cantidad (máximo 2 decimales)");
         txtQuantity.setStyle("-fx-font-size: 17;");
         TextFormatter<String> quantityFormatter = new TextFormatter<>(change -> {
             String newText = change.getControlNewText();
@@ -801,11 +827,7 @@ public class OutcomesController {
                     if (p == null || qText == null || qText.isBlank()) {
                         return null;
                     }
-                    double qty = Double.parseDouble(qText);
-                    if (qty <= 0) {
-                        Utils.showAlert("Validación", "La cantidad debe ser mayor que cero");
-                        return null;
-                    }
+                    double qty = com.joshuamc1.sicam.core.TransactionQuantity.parse(qText).doubleValue();
                     // Validar que la cantidad no exceda el stock disponible
                     Double currentStock = p.getDouble("current_stock");
                     if (currentStock == null) currentStock = 0.0;
@@ -821,8 +843,8 @@ public class OutcomesController {
                             txtNotes.getText(),
                             p.getString("name")
                     );
-                } catch (NumberFormatException ex) {
-                    Utils.showAlert("Error", "La cantidad debe ser un número válido");
+                } catch (IllegalArgumentException ex) {
+                    Utils.showAlert("Validación", ex.getMessage());
                 }
             }
             return null;

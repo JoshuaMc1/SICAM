@@ -2,138 +2,37 @@ package com.joshuamc1.sicam.services;
 
 import com.joshuamc1.sicam.core.DatabaseManager;
 import com.joshuamc1.sicam.core.Session;
-import com.joshuamc1.sicam.core.PermissionHelper;
 import com.joshuamc1.sicam.models.Product;
 import com.joshuamc1.sicam.models.Transaction;
 import com.joshuamc1.sicam.models.TransactionItem;
 import com.joshuamc1.sicam.models.dto.TransactionItemDTO;
-import com.joshuamc1.sicam.repositories.ProductRepository;
 import com.joshuamc1.sicam.repositories.TransactionRepository;
 import com.joshuamc1.sicam.repositories.TransactionItemRepository;
 import org.javalite.activejdbc.Base;
 
 import java.time.LocalDate;
-import java.util.List;
+import java.util.*;
+import java.math.BigDecimal;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import com.joshuamc1.sicam.core.Authorization;
 
 public class TransactionService {
-    private final ProductRepository productRepo = new ProductRepository();
     private final TransactionRepository repo = new TransactionRepository();
     private final TransactionItemRepository itemRepo = new TransactionItemRepository();
     private final AuditService auditService = new AuditService();
 
-    public Transaction createTransaction(Integer productId, String type,
-                                         double quantity, Integer userId,
+    public Transaction createTransaction(Integer productId, String type, double quantity, Integer userId,
                                          Integer personId, String notes) {
-
-        // Validar permisos específicos por tipo; ROOT siempre pasa
-        boolean isRoot = Session.getCurrentUser() != null && Session.getCurrentUser().isRootRole();
-        boolean allowed = switch (type) {
-            case "in" -> PermissionHelper.canAccess("INGRESOS", "CREATE");
-            case "out" -> PermissionHelper.canAccess("EGRESOS", "CREATE");
-            case "loan" -> PermissionHelper.canAccess("PRESTAMOS", "CREATE");
-            default -> false;
-        };
-        if (!isRoot && !allowed) {
-            throw new IllegalStateException("Acceso denegado: no tiene permiso para crear " + type);
-        }
-
-        return DatabaseManager.callInConnection(() -> {
-
-            Base.openTransaction();
-
-            Product product = productRepo.findById(productId);
-
-            if (product == null)
-                throw new IllegalArgumentException("Product not found");
-
-            if ("in".equals(type)) {
-                product.updateStock(quantity);
-            } else {
-                product.updateStock(-quantity);
-            }
-
-            productRepo.save(product);
-
-            Transaction t = new Transaction();
-            t.set("product_id", productId);
-            t.set("type", type);
-            t.set("quantity", quantity);
-            t.set("user_id", userId);
-            t.set("person_id", personId);
-            t.set("notes", notes);
-
-            repo.create(t);
-
-            auditService.logAction(
-                    Session.getCurrentUserId(),
-                    "create_transaction",
-                    "transactions",
-                    t.getInteger("id"),
-                    String.format("product_id=%d,type=%s,quantity=%.2f,user_id=%d,person_id=%d,notes=%s",
-                            productId, type, quantity, userId, personId, notes)
-            );
-
-            Base.commitTransaction();
-            return t;
-        });
+        return createMultiProductTransaction(type, null, userId, personId, notes,
+            List.of(new TransactionItemDTO(productId, quantity, notes)));
     }
 
-    // Sobrecarga para permitir fecha personalizada
-    public Transaction createTransaction(Integer productId, String type,
-                                         double quantity, String date,
+    public Transaction createTransaction(Integer productId, String type, double quantity, String date,
                                          Integer personId, String notes) {
-
-        boolean isRoot = Session.getCurrentUser() != null && Session.getCurrentUser().isRootRole();
-        boolean allowed = switch (type) {
-            case "in" -> PermissionHelper.canAccess("INGRESOS", "CREATE");
-            case "out" -> PermissionHelper.canAccess("EGRESOS", "CREATE");
-            case "loan" -> PermissionHelper.canAccess("PRESTAMOS", "CREATE");
-            default -> false;
-        };
-        if (!isRoot && !allowed) {
-            throw new IllegalStateException("Acceso denegado: no tiene permiso para crear " + type);
-        }
-
-        return DatabaseManager.callInConnection(() -> {
-
-            Base.openTransaction();
-
-            Product product = productRepo.findById(productId);
-
-            if (product == null)
-                throw new IllegalArgumentException("Product not found");
-
-            if ("in".equals(type)) {
-                product.updateStock(quantity);
-            } else {
-                product.updateStock(-quantity);
-            }
-
-            productRepo.save(product);
-
-            Transaction t = new Transaction();
-            t.set("product_id", productId);
-            t.set("type", type);
-            t.set("quantity", quantity);
-            t.set("date", date);
-            t.set("user_id", Session.getCurrentUserId());
-            t.set("person_id", personId);
-            t.set("notes", notes);
-
-            repo.create(t);
-
-            auditService.logAction(
-                    Session.getCurrentUserId(),
-                    "create_transaction",
-                    "transactions",
-                    t.getInteger("id"),
-                    String.format("product_id=%d,type=%s,quantity=%.2f,date=%s,person_id=%s,notes=%s",
-                            productId, type, quantity, date, personId, notes)
-            );
-
-            Base.commitTransaction();
-            return t;
-        });
+        return createMultiProductTransaction(type, date, Session.getCurrentUserId(), personId, notes,
+            List.of(new TransactionItemDTO(productId, quantity, notes)));
     }
 
     public List<Transaction> findByProduct(Integer productId) {
@@ -143,64 +42,79 @@ public class TransactionService {
     }
 
     public List<Transaction> findByType(String type) {
+        requireTypeRead(type);
         return DatabaseManager.callInConnection(() ->
                 repo.findByType(type)
         );
     }
 
     public long countByType(String type) {
+        requireTypeRead(type);
         return DatabaseManager.callInConnection(() -> repo.countByType(type));
     }
 
     public List<Transaction> findByTypePage(String type, int limit, int offset) {
+        requireTypeRead(type);
         return DatabaseManager.callInConnection(() -> repo.findByTypePage(type, limit, offset));
     }
 
     public long countToday() {
+        com.joshuamc1.sicam.core.Authorization.require("DASHBOARD","READ");
         return DatabaseManager.callInConnection(repo::countToday);
     }
 
     public List<Transaction> findLatest(int limit) {
+        com.joshuamc1.sicam.core.Authorization.require("DASHBOARD","READ");
         return DatabaseManager.callInConnection(() -> repo.findLatest(limit));
     }
 
     public long countThisMonth() {
+        com.joshuamc1.sicam.core.Authorization.require("DASHBOARD","READ");
         return DatabaseManager.callInConnection(repo::countThisMonth);
     }
 
     public long countLastMonth() {
+        com.joshuamc1.sicam.core.Authorization.require("DASHBOARD","READ");
         return DatabaseManager.callInConnection(repo::countLastMonth);
     }
 
     public long countActiveLoans() {
+        com.joshuamc1.sicam.core.Authorization.require("DASHBOARD","READ");
         return DatabaseManager.callInConnection(repo::countActiveLoans);
     }
 
     public List<Transaction> findLast30Days() {
+        com.joshuamc1.sicam.core.Authorization.require("DASHBOARD","READ");
         return DatabaseManager.callInConnection(repo::findLast30Days);
     }
 
     public java.util.Map<String, Long> getMostMovedProducts(int limit) {
+        com.joshuamc1.sicam.core.Authorization.require("DASHBOARD","READ");
         return DatabaseManager.callInConnection(() -> repo.getMostMovedProducts(limit));
     }
 
     public java.util.Map<String, Long> getTransactionsByType() {
+        com.joshuamc1.sicam.core.Authorization.require("DASHBOARD","READ");
         return DatabaseManager.callInConnection(repo::getTransactionsByType);
     }
 
     public java.util.Map<Integer, Long> getWeeklyActivity() {
+        com.joshuamc1.sicam.core.Authorization.require("DASHBOARD","READ");
         return DatabaseManager.callInConnection(repo::getWeeklyActivity);
     }
 
     public long countByTypeThisMonth(String type) {
+        com.joshuamc1.sicam.core.Authorization.require("DASHBOARD","READ");
         return DatabaseManager.callInConnection(() -> repo.countByTypeThisMonth(type));
     }
 
     public long countByTypeLastMonth(String type) {
+        com.joshuamc1.sicam.core.Authorization.require("DASHBOARD","READ");
         return DatabaseManager.callInConnection(() -> repo.countByTypeLastMonth(type));
     }
 
     public java.util.Map<String, java.util.Map<String, Long>> getQuarterlyTrend() {
+        com.joshuamc1.sicam.core.Authorization.require("DASHBOARD","READ");
         return DatabaseManager.callInConnection(repo::getQuarterlyTrend);
     }
 
@@ -221,75 +135,15 @@ public class TransactionService {
             Integer personId,
             String notes,
             List<TransactionItemDTO> items) {
-
-        // Validar permisos específicos por tipo; ROOT siempre pasa
-        boolean isRoot = Session.getCurrentUser() != null && Session.getCurrentUser().isRootRole();
-        boolean allowed = switch (type) {
-            case "in" -> PermissionHelper.canAccess("INGRESOS", "CREATE");
-            case "out" -> PermissionHelper.canAccess("EGRESOS", "CREATE");
-            case "loan" -> PermissionHelper.canAccess("PRESTAMOS", "CREATE");
-            default -> false;
-        };
-
-        if (!isRoot && !allowed) {
-            throw new IllegalStateException("Acceso denegado: no tiene permiso para crear " + type);
-        }
-
-        if (items == null || items.isEmpty()) {
-            throw new IllegalArgumentException("La transacción debe contener al menos un producto");
-        }
-
-        return DatabaseManager.callInConnection(() -> {
-            Base.openTransaction();
-
-            // 1. Crear header de transacción
-            Transaction transaction = new Transaction();
-            transaction.set("type", type);
-            transaction.set("date", date != null ? date : LocalDate.now().toString());
-            transaction.set("user_id", userId);
-            transaction.set("person_id", personId);
-            transaction.set("notes", notes);
-            transaction.set("total_items", items.size());
-            repo.create(transaction);
-
-            Integer transactionId = transaction.getInteger("id");
-
-            // 2. Crear items y actualizar stock
-            for (TransactionItemDTO itemDTO : items) {
-                Product product = productRepo.findById(itemDTO.getProductId());
-
-                if (product == null) {
-                    Base.rollbackTransaction();
-                    throw new IllegalArgumentException("Producto no encontrado: " + itemDTO.getProductId());
-                }
-
-                // Actualizar stock según tipo
-                if ("in".equals(type)) {
-                    product.updateStock(itemDTO.getQuantity());
-                } else {
-                    product.updateStock(-itemDTO.getQuantity());
-                }
-                productRepo.save(product);
-
-                // Crear item de transacción
-                TransactionItem item = new TransactionItem();
-                item.set("transaction_id", transactionId);
-                item.set("product_id", itemDTO.getProductId());
-                item.set("quantity", itemDTO.getQuantity());
-                item.set("notes", itemDTO.getNotes());
-                itemRepo.create(item);
-            }
-
-            // 3. Auditoría
-            auditService.logAction(
-                    userId,
-                    "create_multi_transaction",
-                    "transactions",
-                    transactionId,
-                    String.format("type=%s, total_items=%d", type, items.size())
-            );
-
-            Base.commitTransaction();
+        requireAction(type, "CREATE");
+        requireActor(userId);
+        List<TransactionItemDTO> safeItems = validateItems(items);
+        String transactionDate = validDate(date);
+        return DatabaseManager.callInTransaction(() -> {
+            Transaction transaction = createHeader(type, transactionDate, userId, personId, notes, safeItems.size());
+            writeItems(transaction.getInteger("id"), safeItems, "in".equals(type) ? 1 : -1);
+            auditService.logAction(userId, "create_multi_transaction", "transactions", transaction.getInteger("id"),
+                "type=" + type + ",total_items=" + safeItems.size());
             return transaction;
         });
     }
@@ -300,9 +154,14 @@ public class TransactionService {
      * @return lista de items
      */
     public List<TransactionItem> getTransactionItems(Integer transactionId) {
-        return DatabaseManager.callInConnection(() ->
-                itemRepo.findByTransactionId(transactionId)
-        );
+        com.joshuamc1.sicam.core.Authorization.requireActiveSession();
+        return DatabaseManager.callInConnection(() -> {
+            Transaction transaction=repo.findById(transactionId);
+            if(transaction==null) return List.of();
+            requireTypeRead(transaction.getString("type"));
+            if(!transaction.isActive()) com.joshuamc1.sicam.core.Authorization.require("SISTEMA","VIEW_DELETED");
+            return itemRepo.findByTransactionId(transactionId);
+        });
     }
 
     /**
@@ -326,304 +185,262 @@ public class TransactionService {
         );
     }
 
-    // ===== MÉTODOS DE INVALIDACIÓN Y RESTAURACIÓN =====
+    // ===== INVALIDACIÓN Y RESTAURACIÓN =====
 
     /**
      * Invalida una transacción (para errores)
      * Revierte el impacto en el stock automáticamente
      */
     public void invalidate(Transaction transaction, String reason) {
-        Integer currentUserId = Session.getCurrentUserId();
-        Integer transactionId = transaction.getInteger("id");
-
-        // Verificar permisos según tipo
-        String type = transaction.getString("type");
-        boolean allowed = switch (type) {
-            case "in" -> PermissionHelper.canAccess("INGRESOS", "DELETE");
-            case "out" -> PermissionHelper.canAccess("EGRESOS", "DELETE");
-            case "loan" -> PermissionHelper.canAccess("PRESTAMOS", "DELETE");
-            default -> false;
-        };
-
-        if (!allowed) {
-            throw new SecurityException("No tiene permiso para invalidar esta transacción");
-        }
-
-        if (transaction.isInvalidated()) {
-            throw new IllegalStateException("La transacción ya está invalidada");
-        }
-
-        DatabaseManager.runInConnection(() -> {
-            Base.openTransaction();
-
-            // Revertir el stock para cada item
-            List<TransactionItem> items = itemRepo.findByTransactionId(transactionId);
-            for (TransactionItem item : items) {
-                Product product = productRepo.findById(item.getInteger("product_id"));
-                if (product != null) {
-                    // Revertir el movimiento
-                    if ("in".equals(type)) {
-                        product.updateStock(-item.getDouble("quantity"));
-                    } else {
-                        product.updateStock(item.getDouble("quantity"));
-                    }
-                    productRepo.save(product);
-                }
-
-                // Marcar item como cancelado
-                item.markAsCancelled();
-            }
-
-            // Invalidar transacción
-            repo.invalidate(transaction, currentUserId, reason);
-
-            auditService.logAction(
-                currentUserId,
-                "invalidate_transaction",
-                "transactions",
-                transactionId,
-                String.format("type=%s,reason=%s", type, reason)
-            );
-
-            Base.commitTransaction();
-        });
+        Authorization.requireActiveSession();
+        if (reason == null || reason.isBlank()) throw new IllegalArgumentException("Indique el motivo de invalidación");
+        changeValidity(transaction, reason.trim(), false);
     }
 
-    /**
-     * Restaura una transacción invalidada
-     * Reaplicael impacto en el stock
-     */
     public void restore(Transaction transaction) {
-        Integer currentUserId = Session.getCurrentUserId();
-        Integer transactionId = transaction.getInteger("id");
+        Authorization.requireActiveSession();
+        changeValidity(transaction, null, true);
+    }
 
-        // Verificar permisos según tipo
-        String type = transaction.getString("type");
-        boolean allowed = switch (type) {
-            case "in" -> PermissionHelper.canAccess("INGRESOS", "RESTORE");
-            case "out" -> PermissionHelper.canAccess("EGRESOS", "RESTORE");
-            case "loan" -> PermissionHelper.canAccess("PRESTAMOS", "RESTORE");
-            default -> false;
-        };
-
-        if (!allowed) {
-            throw new SecurityException("No tiene permiso para restaurar esta transacción");
-        }
-
-        if (!transaction.isInvalidated()) {
-            throw new IllegalStateException("La transacción no está invalidada");
-        }
-
-        DatabaseManager.runInConnection(() -> {
-            Base.openTransaction();
-
-            // Reaplicar el stock para cada item
-            List<TransactionItem> items = itemRepo.findByTransactionId(transactionId);
+    private void changeValidity(Transaction supplied, String reason, boolean restoring) {
+        if (supplied == null || supplied.getInteger("id") == null) throw new IllegalArgumentException("Transacción no válida");
+        Integer id = supplied.getInteger("id");
+        DatabaseManager.callInTransaction(() -> {
+            Transaction initial = repo.findById(id);
+            if (initial == null) throw new IllegalArgumentException("Transacción no encontrada");
+            // Siempre bloquear primero el préstamo y después su devolución.
+            Transaction loan = initial.isLoanReturn() ? lockedTransaction(initial.getInteger("related_transaction_id")) : null;
+            Transaction current = lockedTransaction(id);
+            requireAction(current.getString("type"), restoring ? "RESTORE" : "DELETE");
+            if (restoring ? !current.isInvalidated() : !current.isActive())
+                throw new IllegalStateException(restoring ? "La transacción no está invalidada" : "La transacción ya no está activa");
+            if (current.isLoan() && hasActiveReturn(id))
+                throw new IllegalStateException("Primero debe invalidar la devolución activa del préstamo");
+            if (loan != null) {
+                if (!loan.isLoan() || !loan.isActive()) throw new IllegalStateException("El préstamo relacionado no está activo");
+                if (restoring) {
+                    requireOpenLoan(loan);
+                    if (hasActiveReturn(loan.getInteger("id"))) throw new IllegalStateException("El préstamo ya tiene una devolución activa");
+                } else if (!Objects.equals(loan.getInteger("related_transaction_id"), id)) {
+                    throw new IllegalStateException("La devolución no corresponde al cierre vigente del préstamo");
+                }
+            }
+            List<TransactionItem> items = itemRepo.findByTransactionId(id);
+            if (items.isEmpty()) throw new IllegalStateException("La transacción no tiene productos; requiere revisión");
+            Map<Integer, BigDecimal> quantities = new TreeMap<>();
             for (TransactionItem item : items) {
-                Product product = productRepo.findById(item.getInteger("product_id"));
-                if (product != null) {
-                    // Reaplicar el movimiento
-                    if ("in".equals(type)) {
-                        product.updateStock(item.getDouble("quantity"));
-                    } else {
-                        product.updateStock(-item.getDouble("quantity"));
-                    }
-                    productRepo.save(product);
-                }
-
-                // Marcar item como activo
-                item.markAsActive();
+                if (restoring ? !item.isCancelled() : !item.isActive()) throw new IllegalStateException("Estado de productos inconsistente");
+                quantities.merge(item.getInteger("product_id"), positiveQuantity(item.getDouble("quantity")), BigDecimal::add);
             }
-
-            // Restaurar transacción
-            repo.restore(transaction);
-
-            auditService.logAction(
-                currentUserId,
-                "restore_transaction",
-                "transactions",
-                transactionId,
-                String.format("type=%s", type)
-            );
-
-            Base.commitTransaction();
+            int direction = "in".equals(current.getString("type")) ? 1 : -1;
+            adjustStock(quantities, restoring ? direction : -direction, restoring);
+            for (TransactionItem item : items) {
+                if (restoring) item.markAsActive(); else item.markAsCancelled();
+            }
+            if (restoring) repo.restore(current); else repo.invalidate(current, Session.getCurrentUserId(), reason);
+            if (loan != null) {
+                if (restoring) loan.markAsReturned(id, current.getString("return_type"), LocalDate.parse(current.getString("date")), current.getString("notes"));
+                else {
+                    loan.set("loan_status", openLoanStatus(loan));
+                    loan.set("related_transaction_id", null);
+                    loan.set("actual_return_date", null);
+                    loan.set("return_type", null);
+                    loan.set("return_notes", null);
+                    loan.saveIt();
+                }
+            }
+            auditService.logAction(Session.getCurrentUserId(), restoring ? "restore_transaction" : "invalidate_transaction",
+                "transactions", id, "type=" + current.getString("type") + ",reason=" + reason);
+            return null;
         });
     }
 
-    // ===== MÉTODOS DE GESTIÓN DE PRÉSTAMOS (FASE 10) =====
-
-    /**
-     * Crea un préstamo con código automático
-     */
-    public Transaction createLoan(
-            String date,
-            Integer userId,
-            Integer personId,
-            String notes,
-            LocalDate expectedReturnDate,
-            List<TransactionItemDTO> items) {
-
-        if (!PermissionHelper.canAccess("PRESTAMOS", "CREATE")) {
-            throw new SecurityException("No tiene permiso para crear préstamos");
-        }
-
-        if (expectedReturnDate == null) {
-            throw new IllegalArgumentException("La fecha esperada de devolución es obligatoria");
-        }
-
-        return DatabaseManager.callInConnection(() -> {
-            Base.openTransaction();
-
-            // Generar código único de préstamo
-            com.joshuamc1.sicam.models.Person person =
-                new com.joshuamc1.sicam.repositories.PersonRepository().findById(personId);
-
-            if (person == null) {
-                Base.rollbackTransaction();
-                throw new IllegalArgumentException("Persona no encontrada");
-            }
-
-            String loanCode = com.joshuamc1.sicam.core.LoanCodeGenerator
-                .generateLoanCode(person, LocalDate.now());
-
-            // Crear transacción de préstamo
-            Transaction transaction = new Transaction();
-            transaction.set("type", Transaction.TYPE_LOAN);
-            transaction.set("date", date != null ? date : LocalDate.now().toString());
-            transaction.set("user_id", userId);
-            transaction.set("person_id", personId);
-            transaction.set("notes", notes);
-            transaction.set("total_items", items.size());
-            transaction.set("loan_code", loanCode);
-            transaction.set("loan_status", Transaction.LOAN_STATUS_PENDING);
-            transaction.set("expected_return_date", expectedReturnDate.toString());
-            transaction.set("status", Transaction.STATUS_ACTIVE);
-            repo.create(transaction);
-
-            Integer transactionId = transaction.getInteger("id");
-
-            // Crear items y actualizar stock
-            for (TransactionItemDTO itemDTO : items) {
-                Product product = productRepo.findById(itemDTO.getProductId());
-                if (product == null) {
-                    Base.rollbackTransaction();
-                    throw new IllegalArgumentException("Producto no encontrado: " + itemDTO.getProductId());
-                }
-
-                // Restar stock (es un egreso)
-                product.updateStock(-itemDTO.getQuantity());
-                productRepo.save(product);
-
-                TransactionItem item = new TransactionItem();
-                item.set("transaction_id", transactionId);
-                item.set("product_id", itemDTO.getProductId());
-                item.set("quantity", itemDTO.getQuantity());
-                item.set("notes", itemDTO.getNotes());
-                item.set("status", TransactionItem.STATUS_ACTIVE);
-                itemRepo.create(item);
-            }
-
-            auditService.logAction(
-                userId,
-                "create_loan",
-                "transactions",
-                transactionId,
-                String.format("loan_code=%s,person_id=%d,total_items=%d,expected_return=%s",
-                    loanCode, personId, items.size(), expectedReturnDate)
-            );
-
-            Base.commitTransaction();
-            return transaction;
+    public Transaction createLoan(String date, Integer userId, Integer personId, String notes,
+                                  LocalDate expectedReturnDate, List<TransactionItemDTO> items) {
+        requireAction("loan", "CREATE");
+        requireActor(userId);
+        List<TransactionItemDTO> safeItems = validateItems(items);
+        String transactionDate = validDate(date);
+        if (expectedReturnDate == null || expectedReturnDate.isBefore(LocalDate.parse(transactionDate)))
+            throw new IllegalArgumentException("La devolución debe ser igual o posterior a la fecha del préstamo");
+        return DatabaseManager.callInTransaction(() -> {
+            if (personId == null) throw new IllegalArgumentException("Seleccione la persona del préstamo");
+            lockRow("roles", 1);
+            lockRow("people", personId);
+            com.joshuamc1.sicam.models.Person person = new com.joshuamc1.sicam.repositories.PersonRepository().findById(personId);
+            if (person == null || !"active".equals(person.getString("status"))) throw new IllegalArgumentException("La persona no está activa");
+            // El bloqueo global de préstamos serializa códigos con las mismas iniciales.
+            String code = com.joshuamc1.sicam.core.LoanCodeGenerator.generateLoanCode(person, LocalDate.parse(transactionDate));
+            Transaction loan = createHeader("loan", transactionDate, userId, personId, notes, safeItems.size());
+            loan.set("loan_code", code);
+            loan.set("loan_status", Transaction.LOAN_STATUS_PENDING);
+            loan.set("expected_return_date", expectedReturnDate.toString());
+            loan.saveIt();
+            writeItems(loan.getInteger("id"), safeItems, -1);
+            auditService.logAction(userId, "create_loan", "transactions", loan.getInteger("id"), "loan_code=" + code);
+            return loan;
         });
     }
 
-    /**
-     * Crea una devolución de préstamo
-     */
-    public Transaction createLoanReturn(
-            Integer loanId,
-            String returnType,
-            String returnNotes,
-            List<TransactionItemDTO> items) {
+    public Transaction createLoanReturn(Integer loanId, String returnType, String returnNotes, List<TransactionItemDTO> items) {
+        return createLoanReturn(loanId, LocalDate.now().toString(), returnType, returnNotes, items);
+    }
 
-        if (!PermissionHelper.canAccess("PRESTAMOS", "CREATE") &&
-            !PermissionHelper.canAccess("INGRESOS", "CREATE")) {
-            throw new SecurityException("No tiene permiso para registrar devoluciones");
-        }
-
-        Integer currentUserId = Session.getCurrentUserId();
-
-        return DatabaseManager.callInConnection(() -> {
-            Base.openTransaction();
-
-            // Obtener préstamo original
-            Transaction loan = repo.findById(loanId);
-            if (loan == null || !loan.isLoan()) {
-                Base.rollbackTransaction();
-                throw new IllegalArgumentException("Préstamo no encontrado");
+    public Transaction createLoanReturn(Integer loanId, String date, String returnType, String returnNotes, List<TransactionItemDTO> items) {
+        Authorization.require("INGRESOS", "CREATE");
+        Authorization.require("PRESTAMOS", "READ");
+        String transactionDate = validDate(date);
+        LocalDate returnDate = LocalDate.parse(transactionDate);
+        if (returnType == null || !Set.of("same_product", "purchased", "replaced", "other").contains(returnType))
+            throw new IllegalArgumentException("Tipo de devolución inválido");
+        List<TransactionItemDTO> safeItems = validateItems(items);
+        if (Set.of("replaced", "other").contains(returnType) && (returnNotes == null || returnNotes.isBlank()))
+            throw new IllegalArgumentException("Detalle cómo los productos entregados liquidan el préstamo completo");
+        return DatabaseManager.callInTransaction(() -> {
+            Transaction loan = lockedTransaction(loanId);
+            requireOpenLoan(loan);
+            if (returnDate.isBefore(LocalDate.parse(loan.getString("date")))) {
+                throw new IllegalArgumentException("La fecha de devolución no puede ser anterior a la fecha del préstamo");
             }
-
-            if (!loan.isLoanPending()) {
-                Base.rollbackTransaction();
-                throw new IllegalStateException("El préstamo no está pendiente");
-            }
-
-            // Crear transacción de devolución (ingreso)
-            Transaction returnTransaction = new Transaction();
-            returnTransaction.set("type", Transaction.TYPE_IN);
-            returnTransaction.set("date", LocalDate.now().toString());
-            returnTransaction.set("user_id", currentUserId);
-            returnTransaction.set("person_id", loan.getInteger("person_id"));
-            returnTransaction.set("notes", returnNotes);
-            returnTransaction.set("total_items", items.size());
-            returnTransaction.set("related_transaction_id", loanId);
-            returnTransaction.set("return_type", returnType);
-            returnTransaction.set("status", Transaction.STATUS_ACTIVE);
-            repo.create(returnTransaction);
-
-            Integer returnTxId = returnTransaction.getInteger("id");
-
-            // Crear items y actualizar stock
-            for (TransactionItemDTO itemDTO : items) {
-                Product product = productRepo.findById(itemDTO.getProductId());
-                if (product == null) {
-                    Base.rollbackTransaction();
-                    throw new IllegalArgumentException("Producto no encontrado");
+            if (hasActiveReturn(loanId)) throw new IllegalStateException("El préstamo ya tiene una devolución activa");
+            if (Set.of("same_product", "purchased").contains(returnType)) {
+                Map<Integer, BigDecimal> expected = new TreeMap<>();
+                for (TransactionItem item : itemRepo.findByTransactionId(loanId)) {
+                    if (!item.isActive()) throw new IllegalStateException("El préstamo tiene productos cancelados");
+                    expected.merge(item.getInteger("product_id"), positiveQuantity(item.getDouble("quantity")), BigDecimal::add);
                 }
-
-                // Sumar stock (es un ingreso)
-                product.updateStock(itemDTO.getQuantity());
-                productRepo.save(product);
-
-                TransactionItem item = new TransactionItem();
-                item.set("transaction_id", returnTxId);
-                item.set("product_id", itemDTO.getProductId());
-                item.set("quantity", itemDTO.getQuantity());
-                item.set("notes", itemDTO.getNotes());
-                item.set("status", TransactionItem.STATUS_ACTIVE);
-                itemRepo.create(item);
+                Map<Integer, BigDecimal> received = quantities(safeItems);
+                if (!expected.keySet().equals(received.keySet()) || expected.entrySet().stream().anyMatch(e -> e.getValue().compareTo(received.get(e.getKey())) != 0))
+                    throw new IllegalArgumentException("La devolución debe incluir todos los productos y cantidades del préstamo. No se admiten devoluciones parciales");
             }
-
-            // Actualizar préstamo original
-            loan.markAsReturned(returnTxId, returnType, new java.util.Date(), returnNotes);
-
-            auditService.logAction(
-                currentUserId,
-                "loan_return",
-                "transactions",
-                returnTxId,
-                String.format("loan_id=%d,return_type=%s", loanId, returnType)
-            );
-
-            Base.commitTransaction();
-            return returnTransaction;
+            Integer userId = Session.getCurrentUserId();
+            Transaction returned = createHeader("in", transactionDate, userId, loan.getInteger("person_id"), returnNotes, safeItems.size());
+            returned.set("related_transaction_id", loanId);
+            returned.set("return_type", returnType);
+            returned.saveIt();
+            writeItems(returned.getInteger("id"), safeItems, 1);
+            loan.markAsReturned(returned.getInteger("id"), returnType, returnDate, returnNotes);
+            auditService.logAction(userId, "loan_return", "transactions", returned.getInteger("id"), "loan_id=" + loanId + ",return_type=" + returnType);
+            return returned;
         });
+    }
+
+    private void requireAction(String type, String action) {
+        String module;
+        if ("in".equals(type)) module = "INGRESOS";
+        else if ("out".equals(type)) module = "EGRESOS";
+        else if ("loan".equals(type)) module = "PRESTAMOS";
+        else throw new IllegalArgumentException("Tipo de transacción inválido");
+        Authorization.require(module, action);
+    }
+
+    private void requireActor(Integer userId) {
+        if (userId == null || !Objects.equals(userId, Session.getCurrentUserId())) throw new SecurityException("Usuario de la transacción no válido");
+    }
+
+    private String validDate(String date) {
+        try { return date == null ? LocalDate.now().toString() : LocalDate.parse(date).toString(); }
+        catch (java.time.DateTimeException ex) { throw new IllegalArgumentException("Fecha de transacción inválida", ex); }
+    }
+
+    private BigDecimal positiveQuantity(Double quantity) {
+        return com.joshuamc1.sicam.core.TransactionQuantity.requirePositive(quantity);
+    }
+
+    private List<TransactionItemDTO> validateItems(List<TransactionItemDTO> items) {
+        if (items == null || items.isEmpty()) throw new IllegalArgumentException("Agregue al menos un producto");
+        List<TransactionItemDTO> safe = new ArrayList<>();
+        for (TransactionItemDTO item : items) {
+            if (item == null || item.getProductId() == null || item.getProductId() <= 0) throw new IllegalArgumentException("Producto inválido");
+            safe.add(new TransactionItemDTO(item.getProductId(), positiveQuantity(item.getQuantity()).doubleValue(), item.getNotes()));
+        }
+        return List.copyOf(safe);
+    }
+
+    private Map<Integer, BigDecimal> quantities(List<TransactionItemDTO> items) {
+        Map<Integer, BigDecimal> quantities = new TreeMap<>();
+        for (TransactionItemDTO item : items) quantities.merge(item.getProductId(), positiveQuantity(item.getQuantity()), BigDecimal::add);
+        return quantities;
+    }
+
+    private Transaction createHeader(String type, String date, Integer userId, Integer personId, String notes, int size) {
+        Transaction header = new Transaction();
+        header.set("type", type); header.set("date", date); header.set("user_id", userId);
+        header.set("person_id", personId); header.set("notes", notes); header.set("total_items", size);
+        header.set("status", Transaction.STATUS_ACTIVE);
+        return repo.create(header);
+    }
+
+    private void writeItems(Integer transactionId, List<TransactionItemDTO> items, int direction) {
+        adjustStock(quantities(items), direction, true);
+        for (TransactionItemDTO dto : items) {
+            TransactionItem item = new TransactionItem();
+            item.set("transaction_id", transactionId); item.set("product_id", dto.getProductId());
+            item.set("quantity", dto.getQuantity()); item.set("notes", dto.getNotes()); item.set("status", TransactionItem.STATUS_ACTIVE);
+            itemRepo.create(item);
+        }
+    }
+
+    private void adjustStock(Map<Integer, BigDecimal> quantities, int direction, boolean requireActive) {
+        // TreeMap fija el orden de bloqueo de productos en operaciones con varios productos.
+        for (Map.Entry<Integer, BigDecimal> entry : quantities.entrySet()) {
+            List<Product> matches = Product.findBySQL("SELECT * FROM products WHERE id = ?" + lockingSuffix(), entry.getKey());
+            Product product = matches.isEmpty() ? null : matches.get(0);
+            if (product == null || (requireActive && !"active".equals(product.getString("status"))))
+                throw new IllegalStateException("Producto inexistente o no activo: " + entry.getKey());
+            BigDecimal old = new BigDecimal(Objects.toString(product.get("current_stock"), "0"));
+            BigDecimal next = old.add(entry.getValue().multiply(BigDecimal.valueOf(direction)));
+            if (next.signum() < 0) throw new IllegalStateException("Stock insuficiente para el producto " + product.getString("name") + ". Disponible: " + old);
+            if (next.compareTo(new BigDecimal("99999999.99")) > 0) throw new IllegalStateException("El stock supera el máximo permitido");
+            Base.exec("UPDATE products SET current_stock = ? WHERE id = ?", next, entry.getKey());
+        }
+    }
+
+    private void lockRow(String table, Integer id) {
+        if (id == null) throw new IllegalArgumentException("Registro no válido");
+        try {
+            String suffix = lockingSuffix();
+            try (PreparedStatement statement = Base.connection().prepareStatement("SELECT id FROM " + table + " WHERE id = ?" + suffix)) {
+                statement.setInt(1, id);
+                try (ResultSet rows = statement.executeQuery()) {
+                    if (!rows.next()) throw new IllegalArgumentException("Registro no encontrado en " + table + ": " + id);
+                }
+            }
+        } catch (SQLException ex) { throw new IllegalStateException("No se pudo bloquear el registro", ex); }
+    }
+
+    private Transaction lockedTransaction(Integer id) {
+        lockRow("transactions", id);
+        List<Transaction> matches = Transaction.findBySQL("SELECT * FROM transactions WHERE id = ?" + lockingSuffix(), id);
+        return matches.get(0);
+    }
+
+    private String lockingSuffix() {
+        try { return Base.connection().getMetaData().getDatabaseProductName().equalsIgnoreCase("MySQL") ? " FOR UPDATE" : ""; }
+        catch (SQLException ex) { throw new IllegalStateException("No se pudo verificar la conexión", ex); }
+    }
+
+    private boolean hasActiveReturn(Integer loanId) {
+        List<Transaction> returns = Transaction.findBySQL("SELECT * FROM transactions WHERE related_transaction_id = ? AND type = 'in' AND status = 'active'" + lockingSuffix(), loanId);
+        return !returns.isEmpty();
+    }
+
+    private void requireOpenLoan(Transaction loan) {
+        if (loan == null || !loan.isLoan() || !loan.isActive() ||
+            !Set.of("pending", "overdue").contains(Objects.toString(loan.getString("loan_status"), "")))
+            throw new IllegalStateException("El préstamo no está activo y pendiente de devolución");
+    }
+
+    private String openLoanStatus(Transaction loan) {
+        java.sql.Date due = loan.getDate("expected_return_date");
+        return due != null && due.toLocalDate().isBefore(LocalDate.now()) ? "overdue" : "pending";
     }
 
     /**
      * Busca préstamos pendientes
      */
     public List<Transaction> findPendingLoans() {
+        com.joshuamc1.sicam.core.Authorization.require("PRESTAMOS","READ");
         return DatabaseManager.callInConnection(repo::findPendingLoans);
     }
 
@@ -631,6 +448,7 @@ public class TransactionService {
      * Busca préstamos vencidos
      */
     public List<Transaction> findOverdueLoans() {
+        com.joshuamc1.sicam.core.Authorization.require("PRESTAMOS","READ");
         return DatabaseManager.callInConnection(repo::findOverdueLoans);
     }
 
@@ -638,6 +456,7 @@ public class TransactionService {
      * Obtiene el historial de un préstamo (préstamo + devolución)
      */
     public List<Transaction> getLoanHistory(Integer loanId) {
+        com.joshuamc1.sicam.core.Authorization.require("PRESTAMOS","READ");
         return DatabaseManager.callInConnection(() -> repo.getLoanHistory(loanId));
     }
 
@@ -645,6 +464,7 @@ public class TransactionService {
      * Busca un préstamo por código
      */
     public Transaction findByLoanCode(String loanCode) {
+        com.joshuamc1.sicam.core.Authorization.require("PRESTAMOS","READ");
         return DatabaseManager.callInConnection(() -> repo.findByLoanCode(loanCode));
     }
 
@@ -655,6 +475,7 @@ public class TransactionService {
      * @return Lista de préstamos que coinciden con la búsqueda
      */
     public List<Transaction> searchPendingLoansByCode(String searchText) {
+        com.joshuamc1.sicam.core.Authorization.require("PRESTAMOS","READ");
         return DatabaseManager.callInConnection(() -> repo.searchPendingLoansByCode(searchText));
     }
 
@@ -662,6 +483,7 @@ public class TransactionService {
      * Busca préstamos próximos a vencer
      */
     public List<Transaction> findLoansExpiringSoon(int days) {
+        com.joshuamc1.sicam.core.Authorization.require("PRESTAMOS","READ");
         return DatabaseManager.callInConnection(() -> repo.findLoansExpiringSoon(days));
     }
 
@@ -669,17 +491,34 @@ public class TransactionService {
      * Cuenta préstamos por estado
      */
     public long countLoansByStatus(String loanStatus) {
+        com.joshuamc1.sicam.core.Authorization.require("PRESTAMOS","READ");
         return DatabaseManager.callInConnection(() -> repo.countLoansByStatus(loanStatus));
+    }
+
+    /**
+     * Obtiene solamente transacciones invalidadas por tipo
+     */
+    public List<Transaction> findInvalidatedByType(String type) {
+        com.joshuamc1.sicam.core.Authorization.require("SISTEMA","VIEW_DELETED");
+        requireTypeRead(type);
+        return DatabaseManager.callInConnection(() -> repo.findInvalidatedByType(type));
     }
 
     /**
      * Obtiene transacciones por tipo incluyendo las invalidadas
      */
     public List<Transaction> findByTypeIncludingInvalidated(String type) {
+        com.joshuamc1.sicam.core.Authorization.require("SISTEMA","VIEW_DELETED");
+        requireTypeRead(type);
         return DatabaseManager.callInConnection(() -> {
             return Transaction.where("type = ?", type)
-                .orderBy("created_at DESC");
+                .orderBy("id DESC");
         });
     }
+    private void requireTypeRead(String type) {
+        String module=switch(type) { case "in" -> "INGRESOS"; case "out" -> "EGRESOS"; case "loan" -> "PRESTAMOS"; default -> throw new IllegalArgumentException("Tipo no válido"); };
+        com.joshuamc1.sicam.core.Authorization.require(module,"READ");
+    }
+
 }
 

@@ -17,21 +17,33 @@ public class AuditRepository {
     }
 
     public List<Audit> findAll() {
-        return Audit.findAll();
+        return Audit.findAll().orderBy("id DESC");
     }
 
     public List<AuditDTO> findAllWithUser() {
-        return findPageWithUser(0, 1000, null);
+        return findWithUser(0, null, null, com.joshuamc1.sicam.core.PageSort.DEFAULT);
     }
 
     public List<AuditDTO> findPageWithUser(int offset, int limit, String search) {
+        return findPageWithUser(offset, limit, search, com.joshuamc1.sicam.core.PageSort.DEFAULT);
+    }
+
+    public List<AuditDTO> findPageWithUser(int offset, int limit, String search, com.joshuamc1.sicam.core.PageSort sort) {
+        return findWithUser(offset, limit, search, sort);
+    }
+
+    private List<AuditDTO> findWithUser(int offset, Integer limit, String search, com.joshuamc1.sicam.core.PageSort sort) {
+        String order = sort.toSql(java.util.Map.of(
+            "id", "a.id", "user", "COALESCE(NULLIF(u.name, ''), CAST(a.user_id AS CHAR))",
+            "action", "a.action", "table", "a.table_name", "record", "a.record_id",
+            "details", "a.details", "date", "a.created_at"), "a.id DESC");
         String base = "FROM audit a LEFT JOIN users u ON u.id = a.user_id";
         String where = "";
         if (search != null && !search.trim().isEmpty()) {
             where = " WHERE (lower(u.name) LIKE ? OR lower(a.action) LIKE ? OR lower(a.table_name) LIKE ? OR lower(a.details) LIKE ?)";
         }
-        String sql = "SELECT a.id, a.user_id AS usuario_id, u.name as usuario_name, a.action AS accion, a.table_name AS tabla_afectada, a.record_id AS registro_afectado_id, a.details AS detalles, a.created_at AS fecha " +
-                base + where + " ORDER BY a.created_at DESC LIMIT ? OFFSET ?";
+        String sql = "SELECT a.id, a.user_id AS usuario_id, u.name as usuario_name, u.username AS usuario_username, a.action AS accion, a.table_name AS tabla_afectada, a.record_id AS registro_afectado_id, a.details AS detalles, a.created_at AS fecha " +
+                base + where + " ORDER BY " + order + (limit == null ? "" : " LIMIT ? OFFSET ?");
 
         List<AuditDTO> result = new ArrayList<>();
         PreparedStatement ps = null;
@@ -46,8 +58,10 @@ public class AuditRepository {
                 ps.setString(idx++, pattern);
                 ps.setString(idx++, pattern);
             }
-            ps.setInt(idx++, limit);
-            ps.setInt(idx, offset);
+            if (limit != null) {
+                ps.setInt(idx++, limit);
+                ps.setInt(idx, offset);
+            }
 
             rs = ps.executeQuery();
             while (rs.next()) {
@@ -59,7 +73,7 @@ public class AuditRepository {
                 Integer registroId = rs.getObject("registro_afectado_id") == null ? null : rs.getInt("registro_afectado_id");
                 String detalles = rs.getString("detalles");
                 String fecha = rs.getString("fecha");
-                result.add(new AuditDTO(id, usuarioId, usuarioName, accion, tabla, registroId, detalles, fecha));
+                result.add(new AuditDTO(id, usuarioId, usuarioName, accion, tabla, registroId, detalles, fecha, rs.getString("usuario_username")));
             }
         } catch (Exception e) {
             throw new RuntimeException("Error executing audit query", e);
@@ -104,12 +118,12 @@ public class AuditRepository {
     }
 
     public List<AuditDTO> findAllWithUserByDateRange(LocalDate from, LocalDate to) {
-        String sql = "SELECT a.id, a.user_id AS usuario_id, u.name as usuario_name, " +
+        String sql = "SELECT a.id, a.user_id AS usuario_id, u.name as usuario_name, u.username AS usuario_username, " +
                 "a.action AS accion, a.table_name AS tabla_afectada, a.record_id AS registro_afectado_id, " +
                 "a.details AS detalles, a.created_at AS fecha " +
                 "FROM audit a LEFT JOIN users u ON u.id = a.user_id " +
                 "WHERE DATE(a.created_at) BETWEEN ? AND ? " +
-                "ORDER BY a.created_at DESC";
+                "ORDER BY a.id DESC";
 
         List<AuditDTO> result = new ArrayList<>();
         PreparedStatement ps = null;
@@ -129,7 +143,7 @@ public class AuditRepository {
                 Integer registroId = rs.getObject("registro_afectado_id") == null ? null : rs.getInt("registro_afectado_id");
                 String detalles = rs.getString("detalles");
                 String fecha = rs.getString("fecha");
-                result.add(new AuditDTO(id, usuarioId, usuarioName, accion, tabla, registroId, detalles, fecha));
+                result.add(new AuditDTO(id, usuarioId, usuarioName, accion, tabla, registroId, detalles, fecha, rs.getString("usuario_username")));
             }
         } catch (Exception e) {
             throw new RuntimeException("Error executing audit query by date range", e);

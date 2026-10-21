@@ -8,6 +8,7 @@
 <?import javafx.scene.control.TableColumn?>
 <?import javafx.scene.control.TableView?>
 <?import javafx.scene.control.TextField?>
+<?import javafx.scene.control.ToggleButton?>
 <?import javafx.scene.layout.BorderPane?>
 <?import javafx.scene.layout.HBox?>
 <?import javafx.scene.layout.Region?>
@@ -26,11 +27,12 @@
                 <font>
                    <Font size="14.0" />
                 </font></TextField>
+                <ToggleButton fx:id="btnViewDeleted" onAction="#onViewDeleted" text="Ver eliminados" style="-fx-font-size: 14; -fx-font-weight: bold;" />
                 <Button fx:id="btnNew" onAction="#onNew" text="Nuevo">
                 <font>
                    <Font name="System Bold" size="14.0" />
                 </font></Button>
-                <Button onAction="#onEdit" text="Editar">
+                <Button fx:id="btnEdit" onAction="#onEdit" text="Editar">
                 <font>
                    <Font name="System Bold" size="14.0" />
                 </font></Button>
@@ -38,11 +40,11 @@
                 <font>
                    <Font name="System Bold" size="14.0" />
                 </font></Button>
-                <Button onAction="#onResetPassword" text="Restablecer contraseña">
+                <Button fx:id="btnResetPassword" onAction="#onResetPassword" text="Restablecer contraseña">
                 <font>
                    <Font name="System Bold" size="14.0" />
                 </font></Button>
-                <Button onAction="#onDelete" text="Eliminar">
+                <Button fx:id="btnDelete" onAction="#onDelete" text="Eliminar">
                 <font>
                    <Font name="System Bold" size="14.0" />
                 </font></Button>

@@ -29,14 +29,14 @@ public class RolRepository {
      */
     public List<Rol> findAll() {
         return Rol.where("status != ?", Rol.STATUS_DELETED)
-            .orderBy("nombre");
+            .orderBy("id DESC");
     }
 
     /**
      * Lista todos los roles incluyendo eliminados
      */
     public List<Rol> findAllIncludingDeleted() {
-        return Rol.findAll().orderBy("nombre");
+        return Rol.findAll().orderBy("id DESC");
     }
 
     /**
@@ -44,7 +44,7 @@ public class RolRepository {
      */
     public List<Rol> findDeleted() {
         return Rol.where("status = ?", Rol.STATUS_DELETED)
-            .orderBy("deleted_at DESC");
+            .orderBy("id DESC");
     }
 
     /**
@@ -52,7 +52,7 @@ public class RolRepository {
      */
     public List<Rol> findActive() {
         return Rol.where("status = ?", Rol.STATUS_ACTIVE)
-            .orderBy("nombre");
+            .orderBy("id DESC");
     }
 
     /**
@@ -60,7 +60,7 @@ public class RolRepository {
      */
     public List<Rol> findInactive() {
         return Rol.where("status = ?", Rol.STATUS_INACTIVE)
-            .orderBy("nombre");
+            .orderBy("id DESC");
     }
 
     public Rol create(String nombre, String descripcion) {

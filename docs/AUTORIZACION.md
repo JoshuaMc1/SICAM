@@ -1,6 +1,6 @@
 # Roles y permisos implementados
 
-Actualizado el 20 de octubre de 2026. Esta es la referencia de la política aplicada en el código.
+Actualizado el 21 de octubre de 2026. Esta es la referencia de la política aplicada en el código.
 
 ## Catálogo y configuración inicial
 
@@ -9,13 +9,13 @@ Hay 45 permisos implementados en 12 módulos. Los conteos siguientes corresponde
 | Rol | Permisos iniciales | Alcance |
 | --- | ---: | --- |
 | ROOT | 45 | Todos los permisos implementados; sus permisos no se pueden editar. |
-| ADMIN | 44 | Administración, Roles, Auditoría y Backup; no operaciones destructivas. |
+| ADMIN | 44 | Administración, Roles, Auditoría y Backup; sin operaciones destructivas ni acceso reservado a ROOT. |
 | AUDITOR | 13 | Lectura operativa, usuarios, auditoría, reportes y visualización de eliminados. |
 | SUPERVISOR | 27 | Operaciones, invalidación, restauración y reportes; sin gestión de usuarios y roles. |
 | OPERADOR | 13 | Crear y consultar operaciones, crear/editar inventario y personas; sin invalidar ni restaurar. |
 | CONSULTOR | 9 | Lectura operativa y reportes; sin usuarios, roles, auditoría ni eliminados. |
 
-Las transacciones no admiten edición ni aprobación. Ingresos, Egresos y Préstamos utilizan CREATE, READ, DELETE (invalidar) y RESTORE. Los permisos UPDATE de esos módulos, PRESTAMOS.APPROVE y CONFIGURACION se eliminan del catálogo mediante una migración.
+Las transacciones no admiten edición ni aprobación. Ingresos, Egresos y Préstamos utilizan CREATE, READ, DELETE (invalidar) y RESTORE. Los permisos UPDATE de esos módulos, PRESTAMOS.APPROVE y CONFIGURACION no se incluyen en el catálogo inicial ni se aceptan en PermissionPolicy; no existe una migración nueva de limpieza para bases anteriores.
 
 ## Autorización efectiva
 
@@ -25,7 +25,7 @@ Las transacciones no admiten edición ni aprobación. Ingresos, Egresos y Prést
 - USUARIOS.UPDATE edita datos. Cambiar un rol existente exige además USUARIOS.CHANGE_ROLE. No se permite cambiar el rol propio, asignar ROOT, eliminar/desactivar la cuenta propia ni modificar SYSTEM.
 - Los nombres de los roles del sistema se conservan para mantener las funciones que dependen de su identidad. Los roles personalizados mantienen su nombre al mostrarlos.
 - Ver eliminados exige SISTEMA.VIEW_DELETED. Restaurar exige además RESTORE del módulo; ambos permisos son independientes.
-- Las acciones ocultas continúan ocultas. Las acciones que se mantienen visibles sin autorización quedan bloqueadas y muestran «No cuenta con permisos suficientes» en rojo.
+- Las pantallas ocultan acciones no disponibles o las dejan deshabilitadas según su flujo. Cuando corresponde se muestra un aviso rojo compartido; no se añade un mensaje por cada fila de acciones. Usuarios oculta sus botones no autorizados; Reportes oculta o deshabilita opciones según los permisos aplicables.
 
 ## Funciones por identidad del rol
 
@@ -37,11 +37,13 @@ Los backups automáticos se ejecutan como operaciones internas del sistema. Los 
 
 Generar reportes exige REPORTES.READ, REPORTES.GENERATE y lectura de los módulos consultados. La exportación desde la pantalla exige además REPORTES.EXPORT. Elegir eliminados/invalidados exige VIEW_DELETED; sin este permiso los históricos predeterminados solo muestran operaciones activas.
 
+Los reportes de usuarios excluyen SYSTEM y cuentas ROOT independientemente del rol que exporte. La actividad detallada por usuario exige además lectura de Usuarios y Personas, y muestra transacciones por fecha de registro, no todas sus acciones de Auditoría.
+
 La exportación de Auditoría exige AUDITORIA.READ y AUDITORIA.EXPORT. DASHBOARD.READ autoriza las estadísticas generales del inicio; no concede permisos de escritura.
 
 ## Actualización de instalaciones existentes
 
-La matriz corregida está en las migraciones originales. Para esta regeneración se deben eliminar todas las tablas, incluida schema_migrations, antes de iniciar la aplicación. Las migraciones originales ya excluyen los seis permisos sin flujo y reservan las operaciones destructivas para ROOT. No se agrega una migración de limpieza.
+La matriz corregida está en las migraciones originales: cambiar esos archivos no vuelve a aplicarlos en una base que ya los tenga registrados. La regeneración completa se utilizó con datos de pruebas desechables; no es un procedimiento de actualización para una base operativa. Para conservar datos existentes se necesita un respaldo comprobado y una migración específica. No se agregó una migración de limpieza. Consulte [Base de datos](DATABASE.md) y [Actualización](GETTING_STARTED.md).
 
 Los cambios de asignaciones de permisos se guardan conjuntamente en una transacción y se registran en Auditoría.
 

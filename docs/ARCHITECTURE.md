@@ -1,789 +1,100 @@
-# 🏗️ Arquitectura - SICAM - Sistema de Control de Activos Municipales
+# Arquitectura de SICAM
 
-## 📁 Estructura del Proyecto
+Revisado el 21 de octubre de 2026. La aplicación utiliza JavaFX, ActiveJDBC y MySQL con controladores, servicios y repositorios. SQLite sirve a pruebas automatizadas; AppConfig no convierte el acceso productivo de MySQL en SQLite.
 
-```
-SICAM/
-├── src/
-│   ├── main/
-│   │   ├── java/com/joshuamc1/sicam/
-│   │   │   ├── config/              # ⚙️ Configuraciones del sistema
-│   │   │   ├── controllers/         # 🎮 Controladores JavaFX
-│   │   │   ├── core/                # 🔧 Utilidades centrales
-│   │   │   ├── export/              # 📄 Exportación de documentos
-│   │   │   ├── models/              # 📊 Modelos de datos (ORM)
-│   │   │   ├── models/dto/          # 📦 Data Transfer Objects
-│   │   │   ├── repositories/        # 🗄️ Repositorios (acceso a datos)
-│   │   │   ├── services/            # 🔨 Lógica de negocio
-│   │   │   └── App.java             # 🚀 Clase principal
-│   │   └── resources/
-│   │       ├── css/                 # 🎨 Hojas de estilo
-│   │       ├── fxml/                # 🖼️ Vistas JavaFX
-│   │       ├── images/              # 🖼️ Recursos gráficos
-│   │       ├── migrations/          # 🔄 Migraciones SQL
-│   │       ├── database.properties  # 🔧 Config de ActiveJDBC
-│   │       └── logback.xml          # 📝 Config de logging
-│   └── test/                        # 🧪 Tests unitarios
-├── docs/                            # 📚 Documentación
-├── logs/                            # 📝 Archivos de log
-├── target/                          # 🎯 Archivos compilados
-├── pom.xml                          # 📦 Maven config
-└── README.md                        # 📖 Documentación principal
+## Organización
+
+```text
+src/main/java/com/joshuamc1/sicam/
+  App.java                Inicio y cierre
+  config/                 Conexión MySQL, configuración, migraciones y asistentes
+  controllers/            Login y controladores JavaFX
+    dashboard/            Módulos de la sesión
+  core/                   Sesión, autorización, conexiones, paginación y diálogos
+  models/                 Modelos ActiveJDBC y Report
+    dto/                  Datos de consulta, incluido AuditDTO
+  repositories/           SQL, filtrado, ordenación y acceso a datos
+  services/               Reglas de negocio y límites transaccionales
+  export/                 Exportadores de Auditoría y otros documentos
+  utils/                  Indicadores y utilidades compartidas
+src/main/resources/
+  fxml/                   Vistas JavaFX
+  migrations/             DDL y catálogo inicial
+  fonts/                  DejaVu Sans regular/negrita y licencia
+  images/                 Identidad visual
+src/test/                 Pruebas JUnit, SQLite y controles JavaFX
+tools/qa/                 Captura y comparación de datos de solo lectura
 ```
 
----
+## Flujo de una acción
 
-## 🏛️ Patrón de Arquitectura
-
-### MVC + Service Layer + Repository
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                         VISTA (FXML)                        │
-│  - login.fxml, dashboard.fxml, inventory.fxml, etc.         │
-└────────────────────────┬────────────────────────────────────┘
-                         │
-                         ▼
-┌─────────────────────────────────────────────────────────────┐
-│                    CONTROLADOR (JavaFX)                     │
-│  - LoginController, MainController, InventoryController     │
-│  - Maneja eventos UI                                        │
-│  - Valida permisos (primera capa)                           │
-└────────────────────────┬────────────────────────────────────┘
-                         │
-                         ▼
-┌─────────────────────────────────────────────────────────────┐
-│                    SERVICIO (Service)                       │
-│  - UserService, ProductService, TransactionService          │
-│  - Lógica de negocio                                        │
-│  - Validaciones (segunda capa)                              │
-│  - Orquesta repositorios                                    │
-└────────────────────────┬────────────────────────────────────┘
-                         │
-                         ▼
-┌─────────────────────────────────────────────────────────────┐
-│                  REPOSITORIO (Repository)                   │
-│  - UserRepository, ProductRepository                        │
-│  - Acceso a datos CRUD                                      │
-│  - Consultas específicas                                    │
-└────────────────────────┬────────────────────────────────────┘
-                         │
-                         ▼
-┌─────────────────────────────────────────────────────────────┐
-│                     MODELO (ActiveJDBC)                     │
-│  - User, Product, Transaction, Rol, Permiso                 │
-│  - Mapeo ORM                                                │
-│  - Validaciones de modelo                                   │
-└────────────────────────┬────────────────────────────────────┘
-                         │
-                         ▼
-┌─────────────────────────────────────────────────────────────┐
-│                    BASE DE DATOS (MySQL)                    │
-│  - Tablas: users, products, transactions, etc.              │
-└─────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart LR
+    V[Vista FXML] --> C[Controlador]
+    C --> S[Servicio]
+    S --> A[Autorización vigente]
+    S --> R[Repositorio / modelo ActiveJDBC]
+    R --> DB[(MySQL)]
 ```
 
----
+Los modelos ActiveJDBC también realizan persistencia directamente desde servicios. El diagrama describe responsabilidades, no una obligación de pasar cada sentencia por un repositorio.
 
-## 📦 Paquetes y Responsabilidades
+- Controlador: recoge entradas, aplica visibilidad de acciones, presenta validaciones/resultados y coordina cargas asíncronas.
+- Servicio: exige autorización y comprueba las reglas de la operación.
+- Repositorio: consulta, filtra y ordena en SQL; utiliza parámetros y columnas de ordenación permitidas.
+- Modelo: representa tablas y relaciones; no sustituye las comprobaciones del servicio.
 
-### 1. `config/` - Configuración del Sistema
+## Conexiones y transacciones
 
-#### `DatabaseConfig.java`
-**Propósito:** Gestión de conexión a MySQL con ActiveJDBC
+DatabaseConfig abre MySQL con MySQLConfigManager. ActiveJDBC asocia las conexiones al hilo. DatabaseManager coordina llamadas dentro de una conexión y solo debe cerrar la conexión que administra; una carga en segundo plano no puede utilizar implícitamente la conexión de otro hilo.
 
-```java
-Responsabilidades:
-- Abrir/cerrar conexiones a la base de datos
-- Cargar propiedades de database.properties
-- Proporcionar métodos estáticos para conexión
+TransactionService agrupa stock, cabecera, artículos y Auditoría en una sola transacción. Si ya existe una transacción exterior, utiliza un savepoint y no confirma la transacción ajena. En MySQL vuelve a leer registros bajo bloqueo y bloquea productos por ID ascendente. Importación y edición de stock también guardan sus cambios y auditoría de forma atómica.
 
-Métodos principales:
-- open(): void
-- close(): void
-```
+El almacenamiento usa DECIMAL(10,2). Las cantidades se validan mediante TransactionQuantity; InventoryImportService utiliza BigDecimal. No se debe deducir que todos los campos Java se hayan convertido a BigDecimal.
 
-#### `MigrationRunner.java`
-**Propósito:** Ejecutor de migraciones SQL
+## Autorización y sesión
 
-```java
-Responsabilidades:
-- Leer archivos .sql de migrations/
-- Ejecutar migraciones en orden
-- Registrar migraciones aplicadas
-- Idempotencia (no re-ejecutar)
+- PermissionPolicy contiene las combinaciones módulo/acción implementadas y las restricciones no delegables.
+- Authorization consulta AuthorizationRepository para verificar usuario activo, rol activo y asignaciones vigentes.
+- ROOT accede a las acciones soportadas aunque falte alguna asignación; las operaciones destructivas siguen reservadas a ROOT.
+- PermissionHelper adapta la interfaz. Las comprobaciones de servicios impiden que la autorización dependa de la visibilidad del botón.
+- Session mantiene el usuario y una revisión de sesión. El cierre limpia la sesión con `setCurrentUser(null)`; no existen los métodos `Session.clear()` o `isLoggedIn()` mostrados en documentación anterior.
+- MainController elige un módulo accesible. HomeController controla la vigencia de sus cargas para no aplicar resultados de una sesión cerrada.
 
-Métodos principales:
-- runMigrations(): void
-- executeMigration(String filename): void
-```
+Véase [AUTORIZACION.md](AUTORIZACION.md) para las reglas detalladas.
 
-#### `MySQLConfigManager.java`
-**Propósito:** Gestión segura de credenciales MySQL
+## Modelo transaccional
 
-```java
-Responsabilidades:
-- Cifrar/descifrar credenciales
-- Guardar/cargar configuración
-- Validar configuración
+`transactions` contiene el tipo `in`, `out` o `loan`, usuario, persona, fecha y estado de la cabecera. `transaction_items` contiene producto, cantidad, notas y estado del artículo. No hay `product_id` ni `quantity` en la cabecera actual.
 
-Métodos principales:
-- saveConfig(MySQLConfig): void
-- loadConfig(): MySQLConfig
-- isConfigured(): boolean
-```
+Una devolución es un ingreso relacionado con el préstamo mediante `related_transaction_id`. Los estados de préstamo y de transacción se mantienen por separado. Cambiar la presentación de un badge no modifica ninguno de esos estados.
 
-#### `MySQLConfigDialog.java`
-**Propósito:** Diálogo de configuración inicial
+## Paginación, búsqueda e indicadores
 
-```java
-Responsabilidades:
-- Interfaz para configurar MySQL
-- Probar conexión
-- Ejecutar migraciones iniciales
-- Configuración de usuario ROOT
+PageSort representa el orden solicitado. Los repositorios traducen únicamente columnas permitidas y aplican ordenación antes de LIMIT/OFFSET, con desempate estable. PagedTableSupport conecta los encabezados de JavaFX con esa ordenación. Ordenar solamente las filas visibles reintroduciría el fallo de ordenación entre páginas.
 
-Métodos principales:
-- showConfigDialog(Stage): void
-```
+StockLevel clasifica los niveles de stock para que filtros y badges compartan límites. LoanDueDate compara fechas completas: hoy no es atraso. TransactionStatusBadge presenta el estado real de la transacción.
 
-#### `InitialSetupDialog.java`
-**Propósito:** Diálogo de configuración de usuario ROOT
+## Importación
 
-```java
-Responsabilidades:
-- Crear primer usuario ROOT
-- Validar datos de usuario
-- Configuración inicial del sistema
+InventoryImportService separa lectura, validación, construcción de la vista previa y ejecución. Plan conserva el modo y los datos revisados. Al guardar se vuelve a contrastar el inventario; un cambio desde la vista previa cancela la importación. La vista previa no es un guardado parcial y no debe reutilizarse después de ejecutarla.
 
-Métodos principales:
-- show(Stage): boolean
-```
+## Reportes y Auditoría
 
----
+ReportRepository construye los conjuntos tabulares compartidos por PDF y CSV. Report contiene título, encabezados y filas, además de preferencias de orientación y agrupación PDF. ReportsController coordina los filtros y la escritura de esos formatos.
 
-### 2. `controllers/` - Controladores JavaFX
+Los históricos agrupan los artículos en una fila por transacción. Los indicadores vigentes excluyen transacciones invalidadas y artículos cancelados; las existencias actuales no se reconstruyen como si fueran el stock histórico del mes.
 
-#### Estructura de Paquetes
-```
-controllers/
-├── LoginController.java          # Autenticación
-└── dashboard/                    # Dashboard y módulos
-    ├── MainController.java       # Menú lateral y navegación
-    ├── HomeController.java       # Dashboard principal
-    ├── InventoryController.java  # Gestión de inventario
-    ├── IncomesController.java    # Registro de ingresos
-    ├── OutcomesController.java   # Registro de egresos
-    ├── LoansController.java      # Gestión de préstamos
-    ├── PeopleController.java     # Gestión de personas
-    ├── UsersController.java      # Gestión de usuarios
-    ├── RolesController.java      # Gestión de roles
-    ├── AuditController.java      # Auditoría del sistema
-    ├── ReportsController.java    # Generación de reportes
-    ├── BackupController.java     # Gestión de backups
-    └── ProfileController.java    # Perfil de usuario
-```
+Auditoría tiene un flujo separado: AuditRepository consulta eventos mediante LEFT JOIN con users; AuditDTO conserva identificadores, nombre y username del autor. CsvAuditExporter conserva los campos originales y escapa CSV. PdfAuditExporter utiliza A4 horizontal, columnas ajustadas, detalles completos, continuación de filas extensas y encabezados repetidos. La consulta «todo» no utiliza el límite de la tabla paginada.
 
-#### Responsabilidades Comunes
+Los exportadores de Reportes y Auditoría incorporan fuentes DejaVu Sans para no inicializar el escaneo de fuentes de Windows con Helvetica. No se debe sustituir silenciosamente una fuente faltante por ese respaldo y asumir que se corrigió el problema de fuentes.
 
-**Todos los controladores:**
-```java
-Patrón común:
-1. @FXML - Inyección de componentes UI
-2. initialize() - Configuración inicial
-3. configurePermissions() - Configurar permisos
-4. onAction() - Manejadores de eventos
-5. loadData() - Carga de datos
-6. validate() - Validaciones
+## Inicio, migraciones y tareas automáticas
 
-Ejemplo típico:
-@FXML
-public void initialize() {
-    configurePermissions();
-    loadData();
-}
+App coordina conexión/configuración inicial, migraciones, inicio de sesión y ciclo de vida. MigrationRunner mantiene una lista explícita y ordenada de migraciones y registra sus nombres en schema_migrations. Después intenta configurar eventos MySQL; no utiliza indiscriminadamente todos los `.sql` del directorio.
 
-private void configurePermissions() {
-    PermissionHelper.hideIfNoPermission(btnNew, "MODULO", "CREATE");
-}
+AutoBackupManager intenta respaldos al inicio y cierre normal cuando está habilitado. Sus archivos de control todavía usan una ruta histórica; consulte [GETTING_STARTED.md](GETTING_STARTED.md). BackupService ejecuta herramientas externas; sus archivos y la base de datos no forman una sola transacción distribuida.
 
-@FXML
-public void onNew() {
-    if (!PermissionHelper.validateAndShow("MODULO", "CREATE")) return;
-    // Lógica
-}
-```
+## Pruebas
 
----
-
-### 3. `core/` - Utilidades Centrales
-
-#### `Session.java`
-**Propósito:** Gestión de sesión de usuario
-
-```java
-Responsabilidades:
-- Mantener usuario actual en memoria
-- Proporcionar acceso al usuario logueado
-- Clear de sesión (logout)
-
-Atributos:
-- currentUser: User
-- currentUserId: Integer
-- currentUsername: String
-
-Métodos:
-- setCurrentUser(User): void
-- getCurrentUser(): User
-- isLoggedIn(): boolean
-- clear(): void
-```
-
-#### `PermissionHelper.java`
-**Propósito:** Validación centralizada de permisos
-
-```java
-Responsabilidades:
-- Verificar permisos del usuario actual
-- Ocultar elementos UI sin permiso
-- Mostrar alertas de acceso denegado
-
-Métodos:
-- canAccess(String module, String action): boolean
-- hideIfNoPermission(Node, String module, String action): void
-- validateAndShow(String module, String action): boolean
-```
-
-#### `Utils.java`
-**Propósito:** Utilidades generales
-
-```java
-Responsabilidades:
-- Mostrar alertas
-- Formateo de datos
-- Validaciones comunes
-
-Métodos:
-- showAlert(String title, String message): void
-- showConfirm(String title, String message): boolean
-- formatDate(LocalDate): String
-```
-
-#### `Logs.java`
-**Propósito:** Sistema de logging
-
-```java
-Responsabilidades:
-- Logging estructurado
-- Niveles: INFO, WARN, ERROR, DEBUG
-- Configuración via logback.xml
-
-Métodos:
-- info(Class, String message, Object... args): void
-- warn(Class, String message, Object... args): void
-- error(Class, String message, Throwable t): void
-```
-
-#### `DatabaseManager.java`
-**Propósito:** Gestión automática de conexiones
-
-```java
-Responsabilidades:
-- Abrir conexión antes de operación
-- Cerrar conexión después de operación
-- Manejo de errores de conexión
-
-Métodos:
-- execute(Runnable task): void
-- executeWithResult(Supplier<T> task): T
-```
-
-#### `dialog/` - Diálogos Reutilizables
-```
-dialog/
-├── DateRangeDialog.java       # Selector de rango de fechas
-├── PersonDialogHelper.java    # Diálogos de personas
-├── TransactionTypeDialog.java # Selector de tipo de transacción
-├── UserSelectionDialog.java   # Selector de usuarios
-├── MonthYearDialog.java       # Selector mes/año
-└── PersonSelectionDialog.java # Selector de personas
-```
-
----
-
-### 4. `export/` - Exportación de Documentos
-
-#### `PdfAuditExporter.java`
-**Propósito:** Exportación de auditoría a PDF
-
-```java
-Responsabilidades:
-- Generar PDF con registros de auditoría
-- Formato tabular con encabezados
-- Paginación automática
-
-Métodos:
-- export(List<AuditDTO>, File): void
-```
-
-#### `PdfReportExporter.java`
-**Propósito:** Exportación de reportes a PDF
-
-```java
-Responsabilidades:
-- Generar reportes en PDF
-- Múltiples tipos de reportes
-- Gráficos y tablas
-
-Métodos:
-- exportReport(Report, File): void
-```
-
----
-
-### 5. `models/` - Modelos de Datos (ORM)
-
-#### ActiveJDBC Models
-
-Cada modelo extiende `Model` de ActiveJDBC y representa una tabla en la BD.
-
-#### `User.java`
-```java
-Tabla: users
-Relaciones:
-- belongsTo(Rol.class, "rol_id")
-- hasMany(Transaction.class, "user_id")
-
-Métodos personalizados:
-- setPassword(String): void          // Hashea con BCrypt
-- validatePassword(String): boolean  // Verifica hash
-- getRol(): Rol                      // Obtiene rol
-- getRolNombre(): String             // Obtiene nombre del rol
-- tienePermiso(String, String): boolean // Valida permiso
-- isRootRole(): boolean              // Es ROOT?
-```
-
-#### `Rol.java`
-```java
-Tabla: roles
-Relaciones:
-- hasMany(User.class, "rol_id")
-- hasManyThrough(Permiso.class, "rol_permisos")
-
-Métodos personalizados:
-- getPermisos(): List<Permiso>       // Carga permisos
-- sincronizarPermisos(List<Integer>): void // Actualiza permisos
-- getUsuarios(): List<User>          // Obtiene usuarios
-- isActivo(): boolean                // Está activo?
-- isRoot(): boolean                  // Es ROOT?
-```
-
-#### `Permiso.java`
-```java
-Tabla: permisos
-Relaciones:
-- hasManyThrough(Rol.class, "rol_permisos")
-
-Métodos personalizados:
-- agruparPorModulo(): Map<String, List<Permiso>> // Agrupa por módulo
-```
-
-#### `Product.java`
-```java
-Tabla: products
-Relaciones:
-- hasMany(Transaction.class, "product_id")
-
-Métodos personalizados:
-- updateStock(double quantity): void    // Actualiza stock
-- isLowStock(): boolean                 // Stock bajo?
-- isOutOfStock(): boolean               // Sin stock?
-```
-
-#### `Transaction.java`
-```java
-Tabla: transactions
-Constantes:
-- TYPE_IN = "IN"      // Ingreso
-- TYPE_OUT = "OUT"    // Egreso
-- TYPE_LOAN = "LOAN"  // Préstamo
-
-Relaciones:
-- belongsTo(Product.class, "product_id")
-- belongsTo(User.class, "user_id")
-- belongsTo(Person.class, "person_id")
-```
-
-#### `Person.java`
-```java
-Tabla: people
-Relaciones:
-- hasMany(Transaction.class, "person_id")
-
-Métodos personalizados:
-- getFullName(): String // Nombre completo
-```
-
-#### `Audit.java`
-```java
-Tabla: audit
-Relaciones:
-- belongsTo(User.class, "usuario_id")
-
-Sin métodos personalizados
-```
-
-#### `Backup.java`
-```java
-Tabla: backups
-Relaciones:
-- belongsTo(User.class, "usuario_id")
-
-Métodos personalizados:
-- getUsuario(): User              // Obtiene usuario que creó el backup
-- getUsuarioNombre(): String      // Obtiene nombre del usuario
-- isSuccessful(): boolean         // Verifica si fue exitoso
-- getSizeMB(): double             // Obtiene tamaño en MB
-```
-
----
-
-### 6. `models/dto/` - Data Transfer Objects
-
-#### `AuditDTO.java`
-**Propósito:** Transferir datos de auditoría con información de usuario
-
-```java
-Atributos:
-- id: Integer
-- usuarioId: Integer
-- usuarioName: String         // JOIN con users
-- accion: String
-- tablaAfectada: String
-- registroAfectadoId: Integer
-- detalles: String
-- fecha: String
-```
-
----
-
-### 7. `repositories/` - Repositorios
-
-#### Patrón Repository
-
-Cada repositorio encapsula consultas SQL complejas y operaciones CRUD.
-
-#### `UserRepository.java`
-```java
-Responsabilidades:
-- CRUD de usuarios
-- Consultas personalizadas
-
-Métodos:
-- findById(Integer id): User
-- findByUsername(String username): User
-- findAll(): List<User>
-- save(User user): boolean
-- delete(Integer id): boolean
-- listPaged(int offset, int limit): List<User>
-- count(): long
-```
-
-#### `ProductRepository.java`
-```java
-Responsabilidades:
-- CRUD de productos
-- Consultas de stock
-
-Métodos:
-- findById(Integer id): Product
-- findAll(): List<Product>
-- findLowStock(): List<Product>
-- findOutOfStock(): List<Product>
-- updateStock(Integer id, double quantity): boolean
-```
-
-#### `TransactionRepository.java`
-```java
-Responsabilidades:
-- CRUD de transacciones
-- Consultas por tipo y fecha
-
-Métodos:
-- findById(Integer id): Transaction
-- findByType(String type): List<Transaction>
-- findByDateRange(Date start, Date end): List<Transaction>
-- findByProduct(Integer productId): List<Transaction>
-```
-
-#### `AuditRepository.java`
-```java
-Responsabilidades:
-- Consultas de auditoría
-- Filtros avanzados
-
-Métodos:
-- findAll(): List<Audit>
-- findByUser(Integer userId): List<Audit>
-- findByAction(String action): List<Audit>
-- findByDateRange(Date start, Date end): List<Audit>
-- listPaged(int offset, int limit): List<AuditDTO>
-```
-
----
-
-### 8. `services/` - Servicios (Lógica de Negocio)
-
-#### `UserService.java`
-```java
-Responsabilidades:
-- Lógica de negocio de usuarios
-- Validaciones complejas
-- Coordinación con repositorio
-
-Métodos:
-- createUser(String name, String username, ...): User
-- updateUser(Integer id, ...): boolean
-- deleteUser(Integer id): boolean
-- resetPassword(Integer id, String newPassword): boolean
-- authenticate(String username, String password): User
-```
-
-#### `ProductService.java`
-```java
-Responsabilidades:
-- Lógica de negocio de productos
-- Gestión de stock
-- Validaciones
-
-Métodos:
-- createProduct(String name, ...): Product
-- updateProduct(Integer id, ...): boolean
-- deleteProduct(Integer id): boolean
-- adjustStock(Integer id, double quantity): boolean
-```
-
-#### `TransactionService.java`
-```java
-Responsabilidades:
-- Registro de transacciones
-- Actualización de stock
-- Validaciones de negocio
-
-Métodos:
-- createTransaction(Integer productId, String type, ...): Transaction
-- validateTransaction(Transaction): boolean
-- updateProductStock(Transaction): void
-```
-
-#### `AuditService.java`
-```java
-Responsabilidades:
-- Registro de auditoría
-- Consultas de auditoría
-
-Métodos:
-- log(Integer userId, String action, String table, Integer recordId, String details): void
-- getAuditTrail(Integer userId): List<Audit>
-```
-
-#### `ReportService.java`
-```java
-Responsabilidades:
-- Generación de reportes
-- Consultas complejas para reportes
-
-Métodos:
-- usersExcludingRoot(): Report
-- inventoryComplete(): Report
-- transactionsByType(String type): Report
-- productsMostMoved(): Report
-```
-
-#### `BackupService.java`
-```java
-Responsabilidades:
-- Creación de backups de BD
-- Gestión de archivos de backup
-- Limpieza de backups antiguos
-
-Métodos:
-- createBackup(): Path
-- listBackupsPaged(int offset, int limit): List<Backup>
-- deleteBackup(Integer backupId): void
-- cleanOldBackups(int keepLast): int
-- getBackupDirectory(): Path
-```
-
----
-
-## 🔄 Flujo de Datos
-
-### Ejemplo: Crear un Producto
-
-```
-1. Usuario hace clic en "Nuevo Producto" (UI)
-   ↓
-2. InventoryController.onNew()
-   - Valida permiso INVENTARIO.CREATE
-   ↓
-3. Muestra diálogo para ingresar datos
-   ↓
-4. Usuario llena formulario y presiona "Guardar"
-   ↓
-5. InventoryController valida datos
-   ↓
-6. Llama a ProductService.createProduct(...)
-   ↓
-7. ProductService valida lógica de negocio
-   ↓
-8. Llama a ProductRepository.save(product)
-   ↓
-9. ProductRepository ejecuta INSERT en MySQL
-   ↓
-10. AuditService.log("create_product", ...)
-   ↓
-11. Retorna éxito a controller
-   ↓
-12. Controller muestra mensaje de éxito
-   ↓
-13. Recarga tabla de productos
-```
-
----
-
-## 🎨 Recursos (resources/)
-
-### `css/dashboard.css`
-```css
-Estilos personalizados para:
-- Sidebar del dashboard
-- Botones
-- Tablas
-- Formularios
-```
-
-### `fxml/` - Vistas JavaFX
-```
-fxml/
-├── login.fxml              # Pantalla de login
-└── dashboard/
-    ├── home.fxml           # Dashboard principal
-    ├── inventory.fxml      # Gestión de inventario
-    ├── incomes.fxml        # Registro de ingresos
-    ├── outcomes.fxml       # Registro de egresos
-    ├── loans.fxml          # Gestión de préstamos
-    ├── people.fxml         # Gestión de personas
-    ├── users.fxml          # Gestión de usuarios
-    ├── roles.fxml          # Gestión de roles
-    ├── audit.fxml          # Auditoría
-    ├── reports.fxml        # Reportes
-    ├── backup.fxml         # Gestión de backups
-    └── profile.fxml        # Perfil de usuario
-```
-
-### `migrations/` - Migraciones SQL
-```
-Patrón de nombres:
-YYYYMMDDHHMMSS_descripcion.sql
-
-Ejemplo:
-20251114112627_create_roles_table.sql
-```
-
----
-
-## 🔌 Dependencias Principales
-
-### Maven Dependencies (pom.xml)
-
-```xml
-<!-- JavaFX -->
-<dependency>
-    <groupId>org.openjfx</groupId>
-    <artifactId>javafx-controls</artifactId>
-    <version>25.0.1</version>
-</dependency>
-
-<!-- ActiveJDBC (ORM) -->
-<dependency>
-    <groupId>org.javalite</groupId>
-    <artifactId>activejdbc</artifactId>
-    <version>3.5-j11</version>
-</dependency>
-
-<!-- MySQL Driver -->
-<dependency>
-    <groupId>com.mysql</groupId>
-    <artifactId>mysql-connector-j</artifactId>
-    <version>8.3.0</version>
-</dependency>
-
-<!-- BCrypt (Hashing) -->
-<dependency>
-    <groupId>at.favre.lib</groupId>
-    <artifactId>bcrypt</artifactId>
-    <version>0.10.2</version>
-</dependency>
-
-<!-- Logback (Logging) -->
-<dependency>
-    <groupId>ch.qos.logback</groupId>
-    <artifactId>logback-classic</artifactId>
-    <version>1.4.11</version>
-</dependency>
-
-<!-- PDFBox (PDF Generation) -->
-<dependency>
-    <groupId>org.apache.pdfbox</groupId>
-    <artifactId>pdfbox</artifactId>
-    <version>2.0.29</version>
-</dependency>
-```
-
----
-
-## 🚀 Ciclo de Vida de la Aplicación
-
-```
-1. App.main()
-   ↓
-2. Verifica configuración MySQL
-   ↓
-3. Si NO configurado:
-   - Muestra MySQLConfigDialog
-   - Guarda configuración
-   - Ejecuta migraciones
-   - Muestra InitialSetupDialog (crear ROOT)
-   ↓
-4. Si SÍ configurado:
-   - Carga login.fxml
-   ↓
-5. Usuario ingresa credenciales
-   ↓
-6. LoginController.onLogin()
-   - Valida credenciales
-   - Crea sesión (Session.setCurrentUser)
-   - Registra auditoría (login)
-   ↓
-7. Carga dashboard.fxml (MainController)
-   ↓
-8. MainController.setLoggedUser()
-   - Configura permisos del menú
-   - Oculta módulos sin acceso
-   - Carga home.fxml por defecto
-   ↓
-9. Usuario interactúa con el sistema
-   ↓
-10. Usuario hace logout
-    - Registra auditoría (logout)
-    - Session.clear()
-    - Vuelve a login.fxml
-```
-
----
-
-**Documentación actualizada:** 20 de Noviembre de 2025  
-**Versión:** 1.0  
-**Arquitectura:** MVC + Service + Repository
-
+`mvn test` ejecuta las pruebas JUnit declaradas en el proyecto. Se verifican autorización, operaciones de inventario/transacciones, importación, paginación, sesión, detalles de exportación, fuentes y orientación. Los casos SQLite no sustituyen las pruebas con bloqueos y concurrencia MySQL. Las herramientas en tools/qa complementan la evidencia sin escribir en la base.

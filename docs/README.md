@@ -1,56 +1,30 @@
-# 📚 Documentación del Sistema - SICAM - Sistema de Control de Activos Municipales
+# Documentación de SICAM
 
-Bienvenido a la documentación oficial del **Sistema de Control de Activos Municipales**.
+Referencia revisada contra el código y las migraciones del repositorio el **21 de octubre de 2026**, para la versión **1.0-SNAPSHOT**.
 
-## 📖 Documentos Disponibles
+| Guía | Propósito |
+| --- | --- |
+| [GETTING_STARTED.md](GETTING_STARTED.md) | Instalación, actualización y diagnóstico |
+| [FEATURES.md](FEATURES.md) | Funciones disponibles y reglas de operación |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | Organización del código y responsabilidades |
+| [DATABASE.md](DATABASE.md) | Diccionario del esquema y migraciones |
+| [AUTORIZACION.md](AUTORIZACION.md) | Catálogo de permisos, roles y restricciones |
+| [SECURITY.md](SECURITY.md) | Autenticación, protección de cuentas y límites de seguridad |
+| [REPORTES.md](REPORTES.md) | Qué incluye cada reporte PDF/CSV |
+| [EVENTOS_AUTOMATICOS.md](EVENTOS_AUTOMATICOS.md) | Actualización programada de préstamos vencidos |
+| [REVISION_DOCUMENTACION.md](REVISION_DOCUMENTACION.md) | Registro de incoherencias corregidas y observaciones pendientes |
 
-### Arquitectura y Diseño
-- **[ARCHITECTURE.md](ARCHITECTURE.md)** - Arquitectura del sistema, patrones de diseño y estructura del proyecto
+## Cómo consultar las guías
 
-### Base de Datos
-- **[DATABASE.md](DATABASE.md)** - Estructura de la base de datos, tablas, relaciones y migraciones
-- **[EVENTOS_AUTOMATICOS.md](EVENTOS_AUTOMATICOS.md)** - Eventos MySQL automáticos para préstamos vencidos
+Para instalar, empiece por Inicio y Base de datos. Para operar, consulte Funcionalidades y Reportes. Para administrar accesos, use Autorización y Seguridad. Para desarrollar, consulte Arquitectura y las pruebas en [src/test](../src/test).
 
-### Características
-- **[FEATURES.md](FEATURES.md)** - Lista completa de características y funcionalidades del sistema
+El código, [pom.xml](../pom.xml), [PermissionPolicy](../src/main/java/com/joshuamc1/sicam/core/PermissionPolicy.java) y las [migraciones](../src/main/resources/migrations) son las fuentes de referencia. Las cifras de permisos corresponden a una instalación nueva, no a roles modificados durante el uso.
 
-### Guía de Inicio
-- **[GETTING_STARTED.md](GETTING_STARTED.md)** - Cómo instalar, configurar y comenzar a usar el sistema
+## Documentos y evidencias locales
 
-### Seguridad
-- **[SECURITY.md](SECURITY.md)** - Sistema de permisos, roles y seguridad
+- `documentation.pdf` se edita manualmente en Word; queda fuera de esta actualización.
+- `docs/qa/PLAN_PRUEBAS.md` y `docs/qa/SEGUIMIENTO.md`, cuando existan localmente, son planes y registros históricos de pruebas. Sus resultados describen los momentos de ejecución; no se reescriben como si fueran el comportamiento actual.
+- `docs/qa/`, `qa-evidence/`, `evidence/` y `.dev-notes/` están excluidos de Git. No publique capturas con datos reales o configuraciones privadas.
+- Las herramientas versionadas en [tools/qa](../tools/qa) permiten capturar y comparar datos sin modificarlos.
 
-## 🚀 Inicio Rápido
-
-1. Lee **[GETTING_STARTED.md](GETTING_STARTED.md)** para instalación
-2. Consulta **[DATABASE.md](DATABASE.md)** para configurar la base de datos
-3. Revisa **[FEATURES.md](FEATURES.md)** para conocer las funcionalidades
-4. Consulta **[SECURITY.md](SECURITY.md)** para entender el sistema de permisos
-
-## 🔧 Para Desarrolladores
-
-Si estás contribuyendo al proyecto:
-- Revisa **[ARCHITECTURE.md](ARCHITECTURE.md)** para entender la estructura
-- Consulta la estructura de BD en **[DATABASE.md](DATABASE.md)**
-- Sigue los patrones establecidos en la arquitectura
-
-## 📝 Notas de Desarrollo
-
-Las notas internas de desarrollo (planes, correcciones, mejoras) están en `.dev-notes/` y **no se suben al repositorio**. Son solo para uso local durante el desarrollo.
-
-## 📄 Licencia
-
-Este proyecto está licenciado bajo los términos especificados en [LICENSE.txt](../LICENSE.txt).
-
-## 🤝 Contribuir
-
-Para contribuir al proyecto, por favor:
-1. Lee la arquitectura del sistema
-2. Sigue los estándares de código existentes
-3. Documenta tus cambios
-4. Realiza pruebas antes de enviar cambios
-
----
-**Versión**: 1.0  
-**Última actualización**: 28 de noviembre de 2025
-
+La revisión documental no constituye una certificación de producción ni sustituye una prueba de restauración de respaldos en un entorno separado.

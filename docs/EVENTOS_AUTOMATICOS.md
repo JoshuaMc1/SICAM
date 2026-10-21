@@ -1,280 +1,68 @@
-# ✅ Eventos MySQL Automáticos - Implementación Mejorada
+# Eventos MySQL para préstamos vencidos
 
-## 🎯 ¿Qué se implementó?
+Revisado el 21 de octubre de 2026. Fuente: [MigrationRunner.java](../src/main/java/com/joshuamc1/sicam/config/MigrationRunner.java) y [LoanDueDate.java](../src/main/java/com/joshuamc1/sicam/utils/LoanDueDate.java).
 
-Se agregó funcionalidad en `MigrationRunner.java` para **crear automáticamente los eventos MySQL** después de ejecutar las migraciones, **sin usar DELIMITER**.
+## Dos mecanismos diferentes
 
-## 🔧 Cómo Funciona
+La interfaz y los reportes pueden detectar un préstamo vencido comparando `expected_return_date` con el día actual, aunque la base conserve todavía `loan_status='pending'`. También consideran vencido un estado ya guardado como `overdue`. Una fecha que vence hoy no cuenta como atraso.
 
-### 1. Flujo de Ejecución
-
-```
-┌─────────────────────────────────────┐
-│  App.java inicia                    │
-└────────────┬────────────────────────┘
-             │
-             ▼
-┌─────────────────────────────────────┐
-│  DatabaseConfig.openConnection()    │
-└────────────┬────────────────────────┘
-             │
-             ▼
-┌─────────────────────────────────────┐
-│  MigrationRunner.runMigrations()    │
-│  - Ejecuta migraciones .sql         │
-│  - Registra en schema_migrations    │
-└────────────┬────────────────────────┘
-             │
-             ▼
-┌─────────────────────────────────────┐
-│  createOverdueLoansEvents()         │
-│  - Activa event scheduler           │
-│  - Crea 3 eventos automáticamente   │
-└─────────────────────────────────────┘
-```
-
-### 2. Eventos Creados
-
-Se crean **3 eventos** para redundancia:
-
-1. **`update_overdue_loans_morning`** → 8:35 AM cada día
-2. **`update_overdue_loans_backup`** → 9:00 AM cada día
-3. **`update_overdue_loans_midnight`** → 00:05 AM cada día
-
-### 3. Sin DELIMITER
-
-Los eventos se crean en **una sola línea SQL** sin usar `DELIMITER $$`:
-
-```java
-String sql = "CREATE EVENT update_overdue_loans_morning " +
-        "ON SCHEDULE EVERY 1 DAY " +
-        "STARTS (CURDATE() + INTERVAL '08:35:00' HOUR_SECOND) " +
-        "DO BEGIN " +
-        "  DECLARE affected_count INT DEFAULT 0; " +
-        "  DECLARE system_user_id INT DEFAULT 1; " +
-        "  SELECT id INTO system_user_id FROM users WHERE username = 'SYSTEM' LIMIT 1; " +
-        "  UPDATE transactions SET loan_status = 'overdue' " +
-        "  WHERE type = 'loan' AND loan_status = 'pending' " +
-        "  AND status = 'active' AND expected_return_date < CURDATE(); " +
-        "  SET affected_count = ROW_COUNT(); " +
-        "  IF affected_count > 0 THEN " +
-        "    INSERT INTO audit (user_id, action, table_name, ...) " +
-        "    VALUES (system_user_id, 'scheduled_update', ...); " +
-        "  END IF; " +
-        "END";
-
-Base.exec(sql);
-```
-
-## 📋 Funciones Agregadas
-
-### `createOverdueLoansEvents()`
-Función principal que orquesta la creación de eventos.
-
-### `enableEventScheduler()`
-Activa el `event_scheduler` de MySQL con `SET GLOBAL event_scheduler = ON`.
-
-### `createOverdueEventMorning()`
-Crea el evento de las 8:35 AM.
-
-### `createOverdueEventBackup()`
-Crea el evento de las 9:00 AM (respaldo).
-
-### `createOverdueEventMidnight()`
-Crea el evento de las 00:05 AM (medianoche).
-
-### `dropEventIfExists(String eventName)`
-Elimina un evento si existe (para recrearlo).
-
-## ✅ Ventajas de esta Solución
-
-### 1. **Totalmente Automático**
-- No requiere ejecución manual
-- Se ejecuta al iniciar la aplicación
-- Idempotente (puede ejecutarse múltiples veces)
-
-### 2. **Sin DELIMITER**
-- Compatible con ActiveJDBC
-- No requiere archivos .sql separados
-- Todo en código Java
-
-### 3. **Robusto**
-- Maneja errores sin interrumpir la aplicación
-- Logs informativos
-- Si falla, se puede ejecutar manualmente
-
-### 4. **Usuario SYSTEM**
-- Obtiene dinámicamente el ID del usuario SYSTEM
-- Auditoría correcta
-- No hardcodea IDs
-
-### 5. **Redundancia**
-- 3 horarios diferentes
-- Mayor confiabilidad
-- Si uno falla, los otros siguen funcionando
-
-## 🚀 ¿Qué hacer ahora?
-
-### ✅ Nada! Es Automático
-
-La próxima vez que inicies la aplicación:
-
-1. Se ejecutarán las migraciones pendientes
-2. Se crearán automáticamente los eventos MySQL
-3. Los préstamos vencidos se actualizarán automáticamente cada día
-
-### Verificar Eventos Creados
+Los eventos MySQL persisten `loan_status='overdue'` para los préstamos que cumplen:
 
 ```sql
--- Ver eventos
-SHOW EVENTS;
+type = 'loan'
+AND loan_status = 'pending'
+AND status = 'active'
+AND expected_return_date < CURDATE()
+```
 
--- Ver estado del scheduler
+No modifican stock, no invalidan transacciones, no liquidan préstamos ni crean devoluciones. Al afectar registros insertan una entrada agregada de auditoría `scheduled_update`; no insertan un evento por cada producto.
+
+## Configuración al iniciar
+
+Después de las migraciones, MigrationRunner intenta activar `event_scheduler` y crear estos eventos en la conexión MySQL configurada:
+
+| Evento | Horario diario del servidor |
+| --- | --- |
+| update_overdue_loans_morning | 08:35 |
+| update_overdue_loans_backup | 09:00 |
+| update_overdue_loans_midnight | 00:05, con inicio calculado para el día siguiente |
+
+Cada evento existente se intenta eliminar y recrear. La sentencia completa `CREATE EVENT ... DO BEGIN ... END` se envía por JDBC; `DELIMITER` es una instrucción de algunos clientes SQL y no forma parte de esa llamada JDBC.
+
+La configuración necesita permisos MySQL y un programador habilitado; no es correcto afirmar que funciona sin ninguna condición administrativa. La aplicación registra advertencias si no puede configurarlo y puede continuar sin esos eventos.
+
+## SYSTEM y auditoría
+
+Los cuerpos de los eventos buscan la cuenta `username='SYSTEM'` y usan su ID para la auditoría. Sin embargo, la variable SQL se inicializa con **1** antes del SELECT. Por eso la documentación anterior que afirmaba «no hay ningún ID fijo» era inexacta. La existencia correcta de SYSTEM debe comprobarse; no debe asumirse que el ID 1 siempre le corresponde.
+
+SYSTEM es una cuenta técnica creada por las migraciones iniciales, sin rol ni contraseña interactiva. Su estado no debe describirse como el número 0; el esquema de usuarios utiliza estados de texto.
+
+## Verificación de solo lectura
+
+```sql
 SHOW VARIABLES LIKE 'event_scheduler';
 
--- Ver últimos logs de eventos
-SELECT a.*, u.username 
-FROM audit a 
-LEFT JOIN users u ON u.id = a.user_id 
-WHERE u.username = 'SYSTEM' 
-ORDER BY a.created_at DESC 
-LIMIT 5;
+SELECT EVENT_NAME, STATUS, INTERVAL_VALUE, INTERVAL_FIELD, STARTS, TIME_ZONE
+FROM information_schema.EVENTS
+WHERE EVENT_SCHEMA = DATABASE();
+
+SELECT id, loan_code, loan_status, expected_return_date
+FROM transactions
+WHERE type = 'loan' AND status = 'active'
+  AND loan_status IN ('pending', 'overdue');
+
+SELECT id, user_id, action, details, created_at
+FROM audit
+WHERE action = 'scheduled_update'
+ORDER BY id DESC;
 ```
 
-## 📊 Logs Esperados
+Que la interfaz muestre «Vencido» no acredita por sí solo que los eventos estén funcionando: compruebe también el valor persistido y los eventos del servidor.
 
-Al iniciar la aplicación verás:
+## Horarios y diagnóstico
 
-```
-INFO  MigrationRunner - Iniciando migraciones de base de datos...
-INFO  MigrationRunner - Migraciones completadas (sin cambios, idempotente)
-INFO  MigrationRunner - Configurando eventos de préstamos vencidos...
-DEBUG MigrationRunner - Event scheduler activado
-DEBUG MigrationRunner - Evento creado: update_overdue_loans_morning
-DEBUG MigrationRunner - Evento creado: update_overdue_loans_backup
-DEBUG MigrationRunner - Evento creado: update_overdue_loans_midnight
-INFO  MigrationRunner - Eventos de préstamos vencidos configurados correctamente
-```
+CURDATE() y los horarios de los eventos dependen de MySQL; LocalDate.now() depende del equipo donde corre SICAM. La conexión declara serverTimezone=UTC, pero eso no garantiza por sí mismo que la zona de eventos, la del servidor y la del cliente sean idénticas. Diferencias cerca de medianoche requieren revisar las zonas de ambas máquinas.
 
-## ⚠️ Manejo de Errores
+Si los eventos no aparecen o no cambian estados, revise el programador, el esquema seleccionado, permisos EVENT, errores de definición y logs. Activar el programador global corresponde al administrador del servidor y puede requerir privilegios adicionales; no se necesita conceder esos privilegios globales a todo usuario de la aplicación.
 
-Si los eventos no se pueden crear automáticamente (por falta de permisos, etc.):
-
-```
-WARN  MigrationRunner - No se pudieron crear eventos automáticos: ...
-WARN  MigrationRunner - Los eventos pueden crearse manualmente con MANUAL_create_overdue_events.sql
-```
-
-La aplicación **NO se interrumpe**, simplemente advierte y permite ejecución manual.
-
-## 🔍 Troubleshooting
-
-### Problema: "event_scheduler is OFF"
-
-**Solución automática:** El código intenta activarlo con:
-```sql
-SET GLOBAL event_scheduler = ON
-```
-
-**Solución manual:**
-```sql
--- En MySQL
-SET GLOBAL event_scheduler = ON;
-```
-
-### Problema: "Access denied; you need the EVENT privilege"
-
-El usuario MySQL necesita permisos para crear eventos:
-
-```sql
-GRANT EVENT ON *.* TO 'tu_usuario'@'localhost';
-FLUSH PRIVILEGES;
-```
-
-### Problema: Los eventos no aparecen
-
-Verificar que se crearon:
-```sql
-SHOW EVENTS;
-```
-
-Si no aparecen, ejecutar manualmente:
-```bash
-# Ubicación del archivo
-src/main/resources/migrations/MANUAL_create_overdue_events.sql
-```
-
-## 📁 Archivos Relacionados
-
-```
-src/main/java/com/joshuamc1/inventariomunicipal/config/
-└── MigrationRunner.java  ✅ MODIFICADO
-
-src/main/resources/migrations/
-├── MANUAL_create_overdue_events.sql  📋 Backup manual (si es necesario)
-├── TEST_overdue_manual.sql           🧪 Pruebas
-├── QUICK_COMMANDS.sql                ⚡ Comandos útiles
-└── README_EVENTOS.md                 📖 Documentación original
-```
-
-## 🎯 Comparación: Antes vs Ahora
-
-### ❌ Antes
-- Archivo con DELIMITER no compatible
-- Ejecución manual requerida
-- Propenso a errores
-- Documentación compleja
-
-### ✅ Ahora
-- **Totalmente automático**
-- Sin archivos .sql externos
-- Robusto y con manejo de errores
-- Simple de usar
-
-## 📝 Notas Técnicas
-
-### ¿Por qué funciona sin DELIMITER?
-
-MySQL acepta procedimientos en una sola línea SQL concatenada:
-
-```sql
--- ✅ Funciona (una línea)
-CREATE EVENT mi_evento DO BEGIN SELECT 1; SELECT 2; END
-
--- ❌ No funciona con MigrationRunner (requiere DELIMITER)
-CREATE EVENT mi_evento
-DO
-BEGIN
-  SELECT 1;
-  SELECT 2;
-END
-```
-
-### Idempotencia
-
-Los eventos se eliminan y recrean cada vez:
-```java
-dropEventIfExists(eventName);
-// ...
-Base.exec(sql);
-```
-
-Esto asegura que siempre estén actualizados.
-
-## ✅ Checklist de Verificación
-
-Después de iniciar la aplicación:
-
-- [ ] Verificar logs: `Eventos de préstamos vencidos configurados correctamente`
-- [ ] Verificar en MySQL: `SHOW EVENTS;` debe mostrar 3 eventos
-- [ ] Verificar scheduler: `SHOW VARIABLES LIKE 'event_scheduler';` debe ser `ON`
-- [ ] (Opcional) Crear préstamo vencido de prueba y esperar actualización
-
----
-
-## 🎉 Conclusión
-
-Los eventos MySQL ahora se crean **automáticamente** al iniciar la aplicación, sin necesidad de intervención manual. El sistema es robusto, maneja errores y proporciona fallbacks manuales si es necesario.
-
-**¡Ya no necesitas ejecutar ningún archivo SQL manualmente!** 🚀
-
+Existe [MANUAL_create_overdue_events.sql](../src/main/resources/migrations/MANUAL_create_overdue_events.sql) para configuración manual por un administrador. El archivo `20251201000001_create_overdue_loans_events.sql` está en resources, pero no está en la lista automática de getMigrationFiles(); los eventos automáticos descritos aquí los crea el código Java.

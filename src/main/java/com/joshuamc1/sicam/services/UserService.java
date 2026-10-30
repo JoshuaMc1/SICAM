@@ -72,15 +72,20 @@ public class UserService {
                 return null;
             }
 
-            // Login exitoso
-            auditService.logAction(
-                user.getInteger("id"),
-                AuditService.ACTION_LOGIN,
-                "users",
-                user.getInteger("id"),
-                String.format("user_id=%d, username=%s, successful_login", user.getInteger("id"), username)
-            );
-
+            // Reservar antes de devolver el usuario: otro proceso no puede iniciar la misma cuenta.
+            Session.beginAuthenticated(user);
+            try {
+                auditService.logAction(
+                    user.getInteger("id"),
+                    AuditService.ACTION_LOGIN,
+                    "users",
+                    user.getInteger("id"),
+                    String.format("user_id=%d, username=%s, successful_login", user.getInteger("id"), username)
+                );
+            } catch (RuntimeException e) {
+                Session.setCurrentUser(null);
+                throw e;
+            }
             return user;
         });
     }

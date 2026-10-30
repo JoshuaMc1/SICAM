@@ -10,6 +10,7 @@ Referencia revisada contra el código y las migraciones del repositorio el **21 
 | [DATABASE.md](DATABASE.md) | Diccionario del esquema y migraciones |
 | [AUTORIZACION.md](AUTORIZACION.md) | Catálogo de permisos, roles y restricciones |
 | [SECURITY.md](SECURITY.md) | Autenticación, protección de cuentas y límites de seguridad |
+| [SESIONES.md](SESIONES.md) | Sesión única, renovación, recuperación y actualización del esquema |
 | [REPORTES.md](REPORTES.md) | Qué incluye cada reporte PDF/CSV |
 | [EVENTOS_AUTOMATICOS.md](EVENTOS_AUTOMATICOS.md) | Actualización programada de préstamos vencidos |
 | [REVISION_DOCUMENTACION.md](REVISION_DOCUMENTACION.md) | Registro de incoherencias corregidas y observaciones pendientes |

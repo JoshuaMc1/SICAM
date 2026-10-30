@@ -127,11 +127,15 @@ public class App extends Application {
     }
 
     public void stop() {
-        // Crear backup automático de cierre (siempre que se cierre)
-        Logs.info(App.class, "Aplicación cerrándose, creando backup automático...");
-        AutoBackupManager.getInstance().performShutdownBackup();
+        try {
+            // Mantener la reserva hasta terminar las operaciones de cierre.
+            Logs.info(App.class, "Aplicación cerrándose, creando backup automático...");
+            AutoBackupManager.getInstance().performShutdownBackup();
 
-        DatabaseConfig.closeConnection();
+        } finally {
+            com.joshuamc1.sicam.core.Session.setCurrentUser(null);
+            DatabaseConfig.closeConnection();
+        }
         Logs.info(App.class, "App stopped");
     }
 

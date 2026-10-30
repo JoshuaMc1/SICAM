@@ -24,8 +24,8 @@ class UsersDeletedViewTest {
         FutureTask<Void> task=new FutureTask<>(()->{
             try(Connection connection=DriverManager.getConnection("jdbc:sqlite::memory:")) {
                 try(Statement s=connection.createStatement()) {
-                    s.execute("CREATE TABLE users(id INTEGER PRIMARY KEY,username TEXT,name TEXT,status TEXT,deleted_at TIMESTAMP)");
-                    s.execute("INSERT INTO users VALUES(1,'ACT','Activo','active',NULL),(10,'INA','Inactivo','inactive',NULL),(1130,'QA1','Eliminado','deleted','2026-10-20 12:00:00'),(2000,'SYSTEM','Sistema','active',NULL),(2001,'SYSTEM','Sistema eliminado','deleted','2026-10-20 12:00:00')");
+                    s.execute("CREATE TABLE users(id INTEGER PRIMARY KEY,username TEXT,name TEXT,status TEXT,deleted_at TIMESTAMP,session_token TEXT,session_expires_at TEXT)");
+                    s.execute("INSERT INTO users(id,username,name,status,deleted_at) VALUES(1,'ACT','Activo','active',NULL),(10,'INA','Inactivo','inactive',NULL),(1130,'QA1','Eliminado','deleted','2026-10-20 12:00:00'),(2000,'SYSTEM','Sistema','active',NULL),(2001,'SYSTEM','Sistema eliminado','deleted','2026-10-20 12:00:00')");
                 }
                 Base.attach(connection);
                 try { operation.run(); } finally { Base.detach(); }

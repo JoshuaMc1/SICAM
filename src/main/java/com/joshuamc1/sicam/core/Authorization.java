@@ -9,11 +9,12 @@ public final class Authorization {
     public static boolean canAccess(String module, String action) {
         Integer id=Session.getCurrentUserId();
         if(id==null) return false;
-        return DatabaseManager.callInConnection(() -> repo.hasPermission(id,module,action));
+        return DatabaseManager.callInConnection(() -> Session.isCurrentLeaseValid(id) && repo.hasPermission(id,module,action));
     }
     public static String currentRole() {
         Integer id=Session.getCurrentUserId();
-        return id==null ? null : DatabaseManager.callInConnection(() -> repo.activeRoleName(id));
+        return id==null ? null : DatabaseManager.callInConnection(
+            () -> Session.isCurrentLeaseValid(id) ? repo.activeRoleName(id) : null);
     }
     public static boolean isRoot() { return "ROOT".equalsIgnoreCase(currentRole()); }
     public static boolean isAdminOrRoot() {

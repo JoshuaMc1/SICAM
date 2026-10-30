@@ -71,6 +71,7 @@ No trate esta versión como una actualización de datos automáticamente segura.
 
 - `schema_migrations` registra nombres de archivos aplicados; editar un archivo ya aplicado no vuelve a ejecutarlo.
 - La matriz corregida de permisos se incorporó a las migraciones originales. Una instalación anterior no recibe esas asignaciones solo reemplazando el JAR.
+- La sesión única requiere `users.session_token` y `users.session_expires_at`, añadidos al DDL original. No existe una migración incremental para bases existentes; prepare una migración específica antes de actualizar todos los clientes. Consulte [Sesiones](SESIONES.md).
 - `20251124120000_migrate_to_multiproduct_transactions.sql` elimina y recrea `transactions` y `transaction_items`; no migra los datos anteriores.
 - Regenerar toda la base, incluida `schema_migrations`, solo corresponde a una base de pruebas desechable y con respaldo cuando proceda. No es el procedimiento de actualización de una instalación operativa.
 
@@ -82,6 +83,7 @@ Para una base operativa: obtenga y compruebe un respaldo, pruebe sobre una copia
 | --- | --- |
 | La aplicación no inicia | JAVA_HOME, `java -version`, `mvn -version`, JavaFX y logs |
 | No conecta a MySQL | Servicio, host/puerto, base, credenciales y conectividad; no desactive el firewall como solución general |
+| Cuenta con sesión activa o sesión caducada | Cierre la otra sesión o espere hasta un minuto tras un cierre inesperado; después inicie sesión nuevamente. Consulte [Sesiones](SESIONES.md) |
 | Falla una migración | Archivo señalado, esquema real, permisos MySQL y `schema_migrations`; no elimine datos como primer intento |
 | No se ven botones o módulos | Permisos vigentes y restricciones de identidad de rol en [AUTORIZACION.md](AUTORIZACION.md) |
 | Reporte de actividad vacío | Compruebe si el usuario registró transacciones; sus acciones de gestión se consultan en Auditoría |

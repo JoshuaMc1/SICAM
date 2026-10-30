@@ -103,9 +103,17 @@ Las transacciones utilizan `invalidated`, no `inactive`, al invalidarse. Transac
 
 ## Sesiones y conexiones
 
-Session mantiene el usuario en memoria y una revisión para detectar cambios de sesión. El cierre de sesión limpia el usuario. El inicio asíncrono comprueba que sus resultados sigan perteneciendo a la sesión antes de aplicarlos.
+Session mantiene el usuario en memoria y una revisión para detectar cambios de sesión. Además, cada cuenta tiene una reserva central en MySQL mediante `users.session_token` y `users.session_expires_at`. Un UPDATE condicional reserva la cuenta de forma atómica después de comprobar las credenciales; otra instancia no puede iniciar la misma cuenta mientras la reserva esté vigente, tanto en el mismo equipo como en equipos distintos conectados a la misma base.
 
-No existe un timeout de inactividad de 30 minutos implementado en Session; los valores de timeout que aparecían anteriormente eran propuestas. Tampoco se debe confundir cierre de sesión con cierre de la aplicación y creación de respaldo.
+La reserva dura 60 segundos desde su última renovación y un hilo independiente de JavaFX la renueva cada 15 segundos. Se utiliza el reloj de la base de datos en UTC. **No hay cierre por inactividad del teclado o ratón:** la renovación continúa aunque el usuario no interactúe o tenga un diálogo abierto. No se utiliza una identidad de dispositivo para permitir sustituir una reserva vigente.
+
+El cierre de sesión y el cierre normal de la aplicación liberan únicamente su propia reserva. Si hay un apagón o cierre forzado, la cuenta vuelve a estar disponible al caducar la última renovación, normalmente en un máximo de un minuto. Suspender el equipo o perder conexión durante ese plazo también puede hacer caducar la reserva. Una sesión caducada no se renueva ni recupera automáticamente; se requiere otro inicio de sesión. Una falla transitoria de renovación se reintenta sin cerrar inmediatamente la ventana.
+
+Authorization consulta la reserva vigente en la base antes de autorizar operaciones. Una instancia antigua no puede autorizar con un token sustituido ni liberar la reserva de otra instancia al cerrar tardíamente. Los resultados asíncronos también comprueban que sigan perteneciendo a la sesión antes de aplicarse. Esto no sustituye los controles de concurrencia de las operaciones de negocio ni revierte operaciones que ya estaban en ejecución.
+
+Los campos se incorporan directamente en `20251114112628_create_user_table.sql`; no existe una migración adicional de ALTER TABLE. Una base existente requiere una migración específica probada sobre una copia respaldada antes de usar esta versión: repetir un CREATE TABLE IF NOT EXISTS sobre una tabla existente no añade columnas, y MigrationRunner omite los archivos ya registrados. Recrear el esquema se reserva para bases de desarrollo desechables. Las versiones antiguas del cliente no implementan este control; todos los equipos que compartan la base deben utilizar la versión actualizada. Véase [Sesiones](SESIONES.md) para el flujo completo y el diagnóstico.
+
+Las pruebas automatizadas de reservas y autorización usan SQLite. La prueba adicional `SessionMySqlTest` se habilita con `mvn -Dsicam.test.mysql=true -Dtest=SessionMySqlTest test`: requiere `SICAM_TEST_SECURE_DIR` apuntando a una carpeta con `mysql.config`, o las variables `SICAM_TEST_MYSQL_URL`, `SICAM_TEST_MYSQL_USER` y `SICAM_TEST_MYSQL_PASSWORD`. Crea exclusivamente un esquema aleatorio `sicam_session_test_*`, ejecuta el DDL original de users y elimina ese esquema al terminar; no modifica las tablas de la instalación. La cuenta MySQL necesita permiso para crear y eliminar el esquema de prueba. También comprueba la renovación en segundo plano durante 65 segundos sin interacción.
 
 ## Configuración de MySQL
 

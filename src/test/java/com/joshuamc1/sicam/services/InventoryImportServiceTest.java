@@ -18,11 +18,11 @@ class InventoryImportServiceTest {
     @BeforeEach void setup() throws Exception {
         connection=DriverManager.getConnection("jdbc:sqlite::memory:");
         sql("CREATE TABLE roles(id INTEGER PRIMARY KEY,nombre TEXT,status TEXT,activo INTEGER)");
-        sql("CREATE TABLE users(id INTEGER PRIMARY KEY,rol_id INTEGER,status TEXT,username TEXT)");
+        sql("CREATE TABLE users(id INTEGER PRIMARY KEY,rol_id INTEGER,status TEXT,username TEXT,session_token TEXT,session_expires_at TEXT)");
         sql("CREATE TABLE products(id INTEGER PRIMARY KEY AUTOINCREMENT,code TEXT UNIQUE,name TEXT,description TEXT,unit TEXT,current_stock DECIMAL,minimum_stock DECIMAL,status TEXT)");
         sql("CREATE TABLE audit(id INTEGER PRIMARY KEY,user_id INTEGER,action TEXT,table_name TEXT,record_id INTEGER,details TEXT)");
         sql("INSERT INTO roles VALUES(1,'ROOT','active',1)");
-        sql("INSERT INTO users VALUES(1,1,'active','root')");
+        sql("INSERT INTO users(id,rol_id,status,username) VALUES(1,1,'active','root')");
         Base.attach(connection); Session.setCurrentUser(User.findById(1));
     }
     @AfterEach void close() throws Exception { Session.setCurrentUser(null); Base.detach(); connection.close(); }

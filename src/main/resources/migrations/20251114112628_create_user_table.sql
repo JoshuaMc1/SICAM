@@ -6,6 +6,8 @@ CREATE TABLE IF NOT EXISTS users (
     rol_id INT DEFAULT NULL,
     status ENUM('active', 'inactive', 'deleted') DEFAULT 'active',
     must_change_password TINYINT(1) DEFAULT 1,
+    session_token CHAR(36) CHARACTER SET ascii COLLATE ascii_bin DEFAULT NULL,
+    session_expires_at DATETIME(6) DEFAULT NULL,
     deleted_at TIMESTAMP NULL DEFAULT NULL,
     deleted_by INT NULL DEFAULT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

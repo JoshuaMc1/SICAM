@@ -3,6 +3,7 @@ package com.joshuamc1.sicam.controllers;
 import com.joshuamc1.sicam.controllers.dashboard.MainController;
 import com.joshuamc1.sicam.core.Logs;
 import com.joshuamc1.sicam.core.Session;
+import com.joshuamc1.sicam.core.Authorization;
 import com.joshuamc1.sicam.core.Utils;
 import com.joshuamc1.sicam.models.User;
 import com.joshuamc1.sicam.services.UserService;
@@ -35,6 +36,7 @@ public class LoginController {
             return;
         }
 
+        boolean sessionStarted = false;
         try {
             User user = userService.login(username, password);
 
@@ -69,6 +71,8 @@ public class LoginController {
 
             // Establecer sesión antes de cualquier auditoría (p.ej., cambio de contraseña forzado)
             Session.setCurrentUser(user);
+            sessionStarted = true;
+            Session.startHeartbeat();
 
             // Leer must_change_password de forma robusta (MySQL puede devolver boolean o tinyint)
             boolean mustChange = false;
@@ -97,9 +101,15 @@ public class LoginController {
                 }
             }
 
+            Authorization.requireActiveSession();
             Utils.showAlert("Success", "Bienvenido " + user.getString("name") + "!");
             openMainWindow(user);
+        } catch (SecurityException e) {
+            if (sessionStarted) Session.setCurrentUser(null);
+            // Un segundo login rechazado no es un error genérico ni toma la sesión anterior.
+            Utils.showAlert("Acceso denegado", e.getMessage());
         } catch (Exception e) {
+            if (sessionStarted) Session.setCurrentUser(null);
             Logs.error(this.getClass(), "Error during login: {}", e.getMessage());
             Utils.showAlert("Error", "Ocurrió un error durante el inicio de sesión");
         }
@@ -154,6 +164,7 @@ public class LoginController {
             String newPwd = res.get();
             try {
                 // Actualizar contraseña directamente
+                Authorization.requireActiveSession();
                 user.setPassword(newPwd);
                 user.set("must_change_password", 0);
                 user.saveIt();
@@ -191,6 +202,7 @@ public class LoginController {
             Stage loginStage = (Stage) txtUsername.getScene().getWindow();
             loginStage.close();
         } catch (IOException e) {
+            Session.setCurrentUser(null);
             Utils.showAlert("Error", "No se pudo abrir la ventana principal");
             Logs.error(this.getClass(), "Failed to open main window: {}", e.getMessage());
             e.printStackTrace();

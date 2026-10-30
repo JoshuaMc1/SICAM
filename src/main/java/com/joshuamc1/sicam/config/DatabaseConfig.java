@@ -6,6 +6,16 @@ import com.joshuamc1.sicam.core.Logs;
 public class DatabaseConfig {
     private static final String DRIVER = "com.mysql.cj.jdbc.Driver";
 
+    /** Conexión breve e independiente para renovar/liberar sesiones incluso al cerrar la UI. */
+    public static java.sql.Connection openSessionConnection() throws java.sql.SQLException {
+        java.util.Properties properties = new java.util.Properties();
+        properties.setProperty("user", MySQLConfigManager.getUsername());
+        properties.setProperty("password", MySQLConfigManager.getPassword());
+        properties.setProperty("connectTimeout", "5000");
+        properties.setProperty("socketTimeout", "5000");
+        return java.sql.DriverManager.getConnection(MySQLConfigManager.getJdbcUrl(), properties);
+    }
+
     public static void openConnection() {
         if (!Base.hasConnection()) {
             try {

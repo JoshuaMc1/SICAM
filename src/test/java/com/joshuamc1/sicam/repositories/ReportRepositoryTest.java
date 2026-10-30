@@ -19,13 +19,13 @@ public class ReportRepositoryTest {
         connection = DriverManager.getConnection("jdbc:sqlite::memory:");
         repo = new ReportRepository(connection);
         sql("CREATE TABLE roles(id INTEGER, nombre TEXT)");
-        sql("CREATE TABLE users(id INTEGER, name TEXT, username TEXT, rol_id INTEGER, status TEXT, created_at TEXT)");
+        sql("CREATE TABLE users(id INTEGER, name TEXT, username TEXT, rol_id INTEGER, status TEXT, created_at TEXT,session_token TEXT,session_expires_at TEXT)");
         sql("CREATE TABLE people(id INTEGER, dni TEXT, first_name TEXT, last_name TEXT, phone TEXT, internal_code TEXT, status TEXT, created_at TEXT)");
         sql("CREATE TABLE products(id INTEGER, name TEXT, description TEXT, unit TEXT, current_stock REAL, minimum_stock REAL, status TEXT, created_at TEXT, code TEXT)");
         sql("CREATE TABLE transactions(id INTEGER, type TEXT, date TEXT, created_at TEXT, status TEXT, user_id INTEGER, person_id INTEGER, loan_code TEXT, loan_status TEXT, expected_return_date TEXT, invalidated_at TEXT, invalidated_by INTEGER, invalidation_reason TEXT, notes TEXT)");
         sql("CREATE TABLE transaction_items(id INTEGER, transaction_id INTEGER, product_id INTEGER, quantity REAL, status TEXT)");
         sql("INSERT INTO roles VALUES(1,'ROOT'),(2,'OPERADOR')");
-        sql("INSERT INTO users VALUES(1,'Root','root',1,'active',?), (2,'María','maria',2,'active',?), (3,'Eliminado','deleted',2,'deleted',?)", today, today, today);
+        sql("INSERT INTO users(id,name,username,rol_id,status,created_at) VALUES(1,'Root','root',1,'active',?), (2,'María','maria',2,'active',?), (3,'Eliminado','deleted',2,'deleted',?)", today, today, today);
         sql("INSERT INTO people VALUES(1,'123','Ana','López','','','active',?)", today);
         product(1, "Papel", "unidad", 5, 10, "active", today.minusDays(150));
         product(2, "Agua", "l", 12, 10, "active", today.minusDays(150));
@@ -327,9 +327,9 @@ public class ReportRepositoryTest {
             repo.transactionsByTypeReport("out"),repo.transactionsByUserReport(2),repo.transactionsByPersonReport(1))) rectangular(report);
     }
     @Test public void systemUsersNeverExposeRolesSystemOrRootEvenForRootExporter() throws Exception {
-        sql("INSERT INTO users VALUES(4,'Sistema','SYSTEM',NULL,'active',?), (5,'Sistema duplicado','system',2,'active',?), (6,'Sin rol','sin_rol',NULL,'active',?)",today,today,today);
+        sql("INSERT INTO users(id,name,username,rol_id,status,created_at) VALUES(4,'Sistema','SYSTEM',NULL,'active',?), (5,'Sistema duplicado','system',2,'active',?), (6,'Sin rol','sin_rol',NULL,'active',?)",today,today,today);
         sql("INSERT INTO roles VALUES(9,'ROOT')");
-        sql("INSERT INTO users VALUES(7,'Otra cuenta root','root_extra',9,'active',?)",today);
+        sql("INSERT INTO users(id,name,username,rol_id,status,created_at) VALUES(7,'Otra cuenta root','root_extra',9,'active',?)",today);
         Report report=repo.users(true,false,false);
         assertEquals(List.of("ID","Nombre","Usuario","Estado","Fecha de registro"),report.getHeaders());
         assertNull(report.getGroupByColumn());
@@ -337,7 +337,7 @@ public class ReportRepositoryTest {
         rectangular(report);
     }
     @Test public void includingDeletedDoesNotBringProtectedAccountsBackIntoSystemReport() throws Exception {
-        sql("INSERT INTO users VALUES(4,'Sistema','SYSTEM',NULL,'deleted',?)",today);
+        sql("INSERT INTO users(id,name,username,rol_id,status,created_at) VALUES(4,'Sistema','SYSTEM',NULL,'deleted',?)",today);
         Report report=repo.users(true,false,true);
         assertEquals(2,report.getRows().size());
         assertTrue(report.getRows().stream().anyMatch(row->value(report,row,"Estado").equals("Eliminado")));
@@ -345,7 +345,7 @@ public class ReportRepositoryTest {
         assertTrue(report.getRows().stream().noneMatch(row->value(report,row,"Usuario").equalsIgnoreCase("SYSTEM") || value(report,row,"Usuario").equals("root")));
     }
     @Test public void groupedUsersCarrySectionMetadataAndRetainRoleInTabularData() throws Exception {
-        sql("INSERT INTO users VALUES(4,'Sistema','SYSTEM',NULL,'active',?)",today);
+        sql("INSERT INTO users(id,name,username,rol_id,status,created_at) VALUES(4,'Sistema','SYSTEM',NULL,'active',?)",today);
         Report report=repo.users(false,true,false);
         assertEquals("Rol",report.getGroupByColumn());
         assertEquals(1,report.getRows().size());
@@ -355,7 +355,7 @@ public class ReportRepositoryTest {
 
     @Test public void groupedUsersExcludeEveryRootAccountIncludingDeletedAndAlternateRoleIds() throws Exception {
         sql("INSERT INTO roles VALUES(9,'root')");
-        sql("INSERT INTO users VALUES(5,'Otra cuenta privilegiada','cuenta_privilegiada',9,'active',?), (6,'Root eliminado','root_eliminado',9,'deleted',?)",today,today);
+        sql("INSERT INTO users(id,name,username,rol_id,status,created_at) VALUES(5,'Otra cuenta privilegiada','cuenta_privilegiada',9,'active',?), (6,'Root eliminado','root_eliminado',9,'deleted',?)",today,today);
         Report report=repo.users(true,true,true);
         assertEquals("Rol",report.getGroupByColumn());
         assertEquals(java.util.Set.of("maria","deleted"),report.getRows().stream().map(row->value(report,row,"Usuario")).collect(java.util.stream.Collectors.toSet()));
@@ -363,7 +363,7 @@ public class ReportRepositoryTest {
     }
 
     @Test public void systemUsersCsvExcludesProtectedAccountsAndRoleColumn(@org.junit.jupiter.api.io.TempDir java.nio.file.Path directory) throws Exception {
-        sql("INSERT INTO users VALUES(4,'Sistema','SYSTEM',NULL,'active',?), (5,'Privilegiado','admin_privilegiado',1,'active',?)",today,today);
+        sql("INSERT INTO users(id,name,username,rol_id,status,created_at) VALUES(4,'Sistema','SYSTEM',NULL,'active',?), (5,'Privilegiado','admin_privilegiado',1,'active',?)",today,today);
         sql("UPDATE users SET name=? WHERE id=2", "María, \"QA\"");
         Report report=repo.users(true,false,true);
         java.nio.file.Path file=directory.resolve("usuarios.csv");

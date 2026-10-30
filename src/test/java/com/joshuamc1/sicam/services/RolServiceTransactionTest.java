@@ -13,8 +13,8 @@ public class RolServiceTransactionTest {
     @BeforeEach public void setup() throws Exception {
         connection=DriverManager.getConnection("jdbc:sqlite::memory:");
         try(Statement s=connection.createStatement()) {
-            s.execute("CREATE TABLE users(id INTEGER PRIMARY KEY,username TEXT,status TEXT,rol_id INTEGER)");
-            s.execute("INSERT INTO users VALUES(1,'root','active',1)");
+            s.execute("CREATE TABLE users(id INTEGER PRIMARY KEY,username TEXT,status TEXT,rol_id INTEGER,session_token TEXT,session_expires_at TEXT)");
+            s.execute("INSERT INTO users(id,username,status,rol_id) VALUES(1,'root','active',1)");
             s.execute("CREATE TABLE roles(id INTEGER PRIMARY KEY,nombre TEXT,status TEXT,activo INTEGER)");
             s.execute("INSERT INTO roles VALUES(1,'ROOT','active',1),(2,'QA1_LECTOR','active',1)");
             s.execute("CREATE TABLE permisos(id INTEGER PRIMARY KEY,modulo TEXT,accion TEXT)");

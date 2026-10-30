@@ -42,7 +42,7 @@ public class HomeControllerLifecycleTest {
         FutureTask<Void> task=new FutureTask<>(()->{
             try(Connection connection=DriverManager.getConnection("jdbc:sqlite::memory:")) {
                 try(Statement statement=connection.createStatement()) {
-                    statement.execute("CREATE TABLE users(id INTEGER PRIMARY KEY,username TEXT,status TEXT,rol_id INTEGER)");
+                    statement.execute("CREATE TABLE users(id INTEGER PRIMARY KEY,username TEXT,status TEXT,rol_id INTEGER,session_token TEXT,session_expires_at TEXT)");
                     statement.execute("CREATE TABLE roles(id INTEGER PRIMARY KEY,nombre TEXT,status TEXT,activo INTEGER)");
                     statement.execute("INSERT INTO roles VALUES(1,'ROOT','active',1),(2,'QA1_LECTOR','active',1)");
                     statement.execute("CREATE TABLE permisos(id INTEGER PRIMARY KEY,modulo TEXT,accion TEXT)");
@@ -51,7 +51,7 @@ public class HomeControllerLifecycleTest {
                     statement.execute("INSERT INTO rol_permisos VALUES(2,1),(2,2)");
                     statement.execute("CREATE TABLE transactions(id INTEGER PRIMARY KEY,type TEXT,status TEXT,total_items INTEGER)");
                     statement.execute("INSERT INTO transactions VALUES(1,'in','active',1),(2,'out','active',1),(3,'loan','active',1),(4,'in','invalidated',1)");
-                    statement.execute("INSERT INTO users VALUES(1,'primero','active',1),(2,'segundo','active',2)");
+                    statement.execute("INSERT INTO users(id,username,status,rol_id) VALUES(1,'primero','active',1),(2,'segundo','active',2)");
                 }
                 Base.attach(connection);
                 try { Session.setCurrentUser(User.findById(1)); operation.run(); }

@@ -13,7 +13,7 @@ public class AuthorizationRepositoryTest {
         auth=new AuthorizationRepository(connection);
         sql("PRAGMA foreign_keys=ON");
         sql("CREATE TABLE roles(id INTEGER PRIMARY KEY,nombre TEXT,status TEXT,activo INTEGER)");
-        sql("CREATE TABLE users(id INTEGER PRIMARY KEY,rol_id INTEGER,status TEXT,username TEXT)");
+        sql("CREATE TABLE users(id INTEGER PRIMARY KEY,rol_id INTEGER,status TEXT,username TEXT,session_token TEXT,session_expires_at TEXT)");
         sql("CREATE TABLE permisos(id INTEGER PRIMARY KEY,modulo TEXT,accion TEXT)");
         sql("CREATE TABLE rol_permisos(rol_id INTEGER,permiso_id INTEGER REFERENCES permisos(id) ON DELETE CASCADE)");
         sql("INSERT INTO roles VALUES(1,'ROOT','active',1),(2,'ADMIN','active',1),(3,'LECTOR','active',1)");

@@ -72,6 +72,8 @@ Fuente: [20251114112628_create_user_table.sql](../src/main/resources/migrations/
 | `rol_id` | `INT DEFAULT NULL` |
 | `status` | `ENUM('active', 'inactive', 'deleted') DEFAULT 'active'` |
 | `must_change_password` | `TINYINT(1) DEFAULT 1` |
+| `session_token` | `CHAR(36) CHARACTER SET ascii COLLATE ascii_bin DEFAULT NULL` |
+| `session_expires_at` | `DATETIME(6) DEFAULT NULL`; vencimiento en UTC de la reserva renovable de 60 segundos |
 | `deleted_at` | `TIMESTAMP NULL DEFAULT NULL` |
 | `deleted_by` | `INT NULL DEFAULT NULL` |
 | `created_at` | `TIMESTAMP DEFAULT CURRENT_TIMESTAMP` |

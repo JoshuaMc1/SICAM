@@ -454,6 +454,13 @@ public class MainController {
         lblCurrentUser.setText(user.getString("name"));
         lblCurrentRole.setText(user.getRolNombre());
         Session.setCurrentUser(user);
+        Session.setOnSessionLost(() -> Platform.runLater(() -> {
+            if (closed || !Session.hasLostLease()) return;
+            logout();
+            Utils.showAlert("Sesión finalizada", "La sesión perdió su vigencia. "
+                + "Puede ocurrir después de una suspensión del equipo o una interrupción prolongada de conexión. "
+                + "Inicie sesión nuevamente.");
+        }));
 
         // Agregar estilos CSS si la escena está disponible
         Platform.runLater(() -> {

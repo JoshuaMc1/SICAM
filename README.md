@@ -2,7 +2,7 @@
 
 Aplicación de escritorio JavaFX para gestionar productos, personas, ingresos, egresos y préstamos con varios productos por transacción. Utiliza MySQL, autorización por roles y permisos, auditoría y exportaciones PDF/CSV.
 
-**Versión:** 1.0-SNAPSHOT. **Documentación revisada:** 21 de octubre de 2026.
+**Versión:** 1.0-SNAPSHOT. **Documentación revisada:** 30 de octubre de 2026.
 
 ## Funcionalidades
 
@@ -11,6 +11,7 @@ Aplicación de escritorio JavaFX para gestionar productos, personas, ingresos, e
 - Devolución completa de préstamos mediante un ingreso relacionado; seguimiento de pendientes, vencidos y cerrados.
 - Importación CSV/Excel con vista previa, modos de creación/actualización, validación integral y detección de cambios concurrentes.
 - Usuarios, personas y roles con permisos vigentes comprobados en servicios y controles de interfaz.
+- Una sesión por cuenta en la misma base de datos, con renovación automática sin cierre por inactividad y recuperación tras cierres inesperados.
 - Tablas paginadas con ordenación sobre el conjunto completo de resultados.
 - Reportes operativos, históricos y analíticos en PDF y CSV; PDF horizontal para documentos con muchas columnas.
 - Auditoría de acciones, con exportación completa o por fechas y detalles sin recorte.
@@ -50,6 +51,7 @@ Productos, personas, usuarios y roles distinguen `active`, `inactive` y `deleted
 | [Base de datos](docs/DATABASE.md) | Esquema, estados, relaciones y migraciones reales |
 | [Autorización](docs/AUTORIZACION.md) | Roles, permisos y funciones reservadas |
 | [Seguridad](docs/SECURITY.md) | Controles implementados y límites actuales |
+| [Sesión única](docs/SESIONES.md) | Funcionamiento, recuperación, actualización y pruebas |
 | [Reportes y auditoría](docs/REPORTES.md) | Criterios de cálculo, filtros y formatos |
 | [Eventos automáticos](docs/EVENTOS_AUTOMATICOS.md) | Préstamos vencidos y programador de MySQL |
 | [Revisión documental](docs/REVISION_DOCUMENTACION.md) | Incoherencias encontradas y correcciones |
@@ -58,7 +60,7 @@ Productos, personas, usuarios y roles distinguen `active`, `inactive` y `deleted
 
 ## Validación y mantenimiento
 
-- `mvn test`: suite automatizada; la última ejecución previa a esta revisión documental aprobó **137 pruebas**, sin fallos ni errores.
+- `mvn test`: validación del 30 de octubre de 2026 con JDK 25; **154 pruebas detectadas, 152 aprobadas y 2 omitidas**, sin fallos ni errores. Las dos omitidas pertenecen a `SessionMySqlTest`, que requiere activación y configuración explícitas.
 - Pruebas con MySQL, varios usuarios, concurrencia y revisión visual complementan las pruebas con SQLite; ninguna cifra de pruebas garantiza por sí sola todos los entornos de instalación.
 - Herramientas de diagnóstico de solo lectura: [tools/qa](tools/qa). No confundir capturas de diagnóstico con respaldos restaurables.
 - [GitHub Issues](https://github.com/JoshuaMc1/SICAM/issues) para incidencias. Logs de aplicación: `logs/app.log`.

@@ -18,13 +18,13 @@ class TransactionSafetyTest {
         connection = DriverManager.getConnection("jdbc:sqlite::memory:");
         sql("PRAGMA foreign_keys=ON");
         sql("CREATE TABLE roles(id INTEGER PRIMARY KEY,nombre TEXT,status TEXT,activo INTEGER)");
-        sql("CREATE TABLE users(id INTEGER PRIMARY KEY,rol_id INTEGER,status TEXT,username TEXT)");
+        sql("CREATE TABLE users(id INTEGER PRIMARY KEY,rol_id INTEGER,status TEXT,username TEXT,session_token TEXT,session_expires_at TEXT)");
         sql("CREATE TABLE people(id INTEGER PRIMARY KEY,first_name TEXT,last_name TEXT,status TEXT)");
         sql("CREATE TABLE products(id INTEGER PRIMARY KEY,code TEXT UNIQUE,name TEXT,description TEXT,unit TEXT,current_stock DECIMAL,minimum_stock DECIMAL,status TEXT)");
         sql("CREATE TABLE transactions(id INTEGER PRIMARY KEY AUTOINCREMENT,type TEXT,date DATE,user_id INTEGER,person_id INTEGER,notes TEXT,total_items INTEGER,status TEXT DEFAULT 'active',invalidated_at TIMESTAMP,invalidated_by INTEGER,invalidation_reason TEXT,loan_code TEXT UNIQUE,loan_status TEXT DEFAULT 'pending',expected_return_date DATE,actual_return_date TIMESTAMP,related_transaction_id INTEGER,return_type TEXT,return_notes TEXT)");
         sql("CREATE TABLE transaction_items(id INTEGER PRIMARY KEY AUTOINCREMENT,transaction_id INTEGER REFERENCES transactions(id),product_id INTEGER REFERENCES products(id),quantity DECIMAL,notes TEXT,status TEXT DEFAULT 'active')");
         sql("CREATE TABLE audit(id INTEGER PRIMARY KEY,user_id INTEGER,action TEXT,table_name TEXT,record_id INTEGER,details TEXT)");
-        sql("INSERT INTO roles VALUES(1,'ROOT','active',1)"); sql("INSERT INTO users VALUES(1,1,'active','root')");
+        sql("INSERT INTO roles VALUES(1,'ROOT','active',1)"); sql("INSERT INTO users(id,rol_id,status,username) VALUES(1,1,'active','root')");
         sql("INSERT INTO people VALUES(1,'Juan','Alvarez','active'),(2,'Jose','Aguilar','active')");
         sql("INSERT INTO products VALUES(1,'ABC','Producto','','unidad',10,0,'active'),(2,'DEF','Segundo','','unidad',10,0,'active')");
         Base.attach(connection); Session.setCurrentUser(User.findById(1));

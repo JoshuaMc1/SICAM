@@ -58,10 +58,10 @@ El almacenamiento usa DECIMAL(10,2). Las cantidades se validan mediante Transact
 - Authorization consulta AuthorizationRepository para verificar usuario activo, rol activo y asignaciones vigentes.
 - ROOT accede a las acciones soportadas aunque falte alguna asignación; las operaciones destructivas siguen reservadas a ROOT.
 - PermissionHelper adapta la interfaz. Las comprobaciones de servicios impiden que la autorización dependa de la visibilidad del botón.
-- Session mantiene el usuario y una revisión de sesión. El cierre limpia la sesión con `setCurrentUser(null)`; no existen los métodos `Session.clear()` o `isLoggedIn()` mostrados en documentación anterior.
+- Session mantiene el usuario, una revisión local y una reserva central por cuenta mediante SessionRepository. La reserva dura 60 segundos y se renueva cada 15 segundos en un hilo independiente de JavaFX; Authorization comprueba su vigencia antes de autorizar. El cierre público se realiza con `setCurrentUser(null)`, que cancela la renovación y libera únicamente su propio token.
 - MainController elige un módulo accesible. HomeController controla la vigencia de sus cargas para no aplicar resultados de una sesión cerrada.
 
-Véase [AUTORIZACION.md](AUTORIZACION.md) para las reglas detalladas.
+Véanse [AUTORIZACION.md](AUTORIZACION.md) para los permisos y [SESIONES.md](SESIONES.md) para el flujo, las conexiones independientes, la recuperación y las pruebas de sesión única.
 
 ## Modelo transaccional
 

@@ -53,3 +53,6 @@ inventario_municipal_prod.db
 /qa-evidence/
 /evidence/
 /docs/qa/
+
+# Guía privada para actualizar el manual de usuario
+/DOCUMENTATION.md

@@ -59,6 +59,16 @@ public final class Session {
         }
     }
 
+    /** Recarga el perfil sin cambiar la identidad local ni la reserva de la sesión. */
+    public static synchronized void refreshCurrentUser() {
+        DatabaseManager.runInConnection(() -> {
+            if (currentUser == null || !isCurrentLeaseValid(currentUser.getInteger("id"))) {
+                throw new SecurityException("La sesión dejó de estar vigente. Inicie sesión nuevamente.");
+            }
+            currentUser.refresh();
+        });
+    }
+
     private static void clear() {
         Lease previous = lease;
         lease = null;

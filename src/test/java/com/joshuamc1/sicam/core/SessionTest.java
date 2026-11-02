@@ -89,4 +89,40 @@ class SessionTest {
         assertTrue(Authorization.isRoot());
         assertThrows(SecurityException.class, () -> new UserService().login("root", "correct-password"));
     }
+
+    @Test void profileRefreshPreservesNavigationAndLogoutStillInvalidatesIt() throws Exception {
+        User original = new UserService().login("root", "correct-password");
+        long revision = Session.getRevision();
+        var menu = new com.joshuamc1.sicam.controllers.dashboard.MainController();
+        var isCurrent = menu.getClass().getDeclaredMethod("isSessionCurrent");
+        isCurrent.setAccessible(true);
+        assertEquals(true, isCurrent.invoke(menu));
+
+        // El perfil edita un modelo distinto del que conserva la sesión.
+        User profile = User.findById(1);
+        profile.set("name", "Updated profile");
+        profile.setPassword("new-password");
+        profile.saveIt();
+        Session.refreshCurrentUser();
+
+        assertSame(original, Session.getCurrentUser());
+        assertEquals(revision, Session.getRevision());
+        assertEquals("Updated profile", original.getString("name"));
+        assertTrue(original.validatePassword("new-password"));
+        assertTrue(Authorization.isRoot());
+        assertEquals(true, isCurrent.invoke(menu));
+        assertThrows(SecurityException.class, () -> new UserService().login("root", "new-password"));
+
+        Session.setCurrentUser(null);
+        assertEquals(false, isCurrent.invoke(menu));
+        assertNotNull(new UserService().login("root", "new-password"));
+        assertEquals(false, isCurrent.invoke(menu));
+    }
+
+    @Test void profileRefreshCannotReviveAnExpiredSession() throws Exception {
+        new UserService().login("root", "correct-password");
+        sql("UPDATE users SET session_expires_at='2000-01-01 00:00:00' WHERE id=1");
+        assertThrows(SecurityException.class, Session::refreshCurrentUser);
+        assertFalse(Authorization.isRoot());
+    }
 }

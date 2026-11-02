@@ -10,6 +10,8 @@ Revisado el 30 de octubre de 2026. Este control se aplica a clientes actualizado
 
 La sesión se renueva aunque no use el teclado o el ratón y mientras tenga un diálogo abierto. **No existe cierre por inactividad.** Suspender el equipo o perder la conexión durante suficiente tiempo puede hacer caducar la sesión. Cuando SICAM confirma que la reserva se perdió, vuelve al acceso y solicita iniciar sesión nuevamente.
 
+Guardar el nombre o cambiar la contraseña desde Mi Perfil conserva la sesión y permite seguir navegando. `Session.refreshCurrentUser()` recarga el mismo objeto de usuario sin cambiar su revisión local ni su reserva, después de comprobar su vigencia. Cerrar sesión o iniciar otra sigue invalidando las pantallas de la sesión anterior.
+
 Una falla transitoria de conexión se reintenta y no cierra inmediatamente la ventana. Mientras la base no pueda verificar una reserva vigente, las operaciones que exigen autorización no pueden continuar. Recuperar la red no permite renovar una reserva que ya caducó.
 
 ## Funcionamiento

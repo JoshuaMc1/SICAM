@@ -127,9 +127,8 @@ public class ProfileController {
             }
 
             if (success) {
-                // Recargar el usuario actualizado en la sesión
-                currentUser = userService.findById(currentUser.getInteger("id"));
-                Session.setCurrentUser(currentUser);
+                // Actualizar los datos sin invalidar la sesión que utiliza el menú.
+                Session.refreshCurrentUser();
 
                 Utils.showAlert("Éxito", "Perfil actualizado correctamente");
 
